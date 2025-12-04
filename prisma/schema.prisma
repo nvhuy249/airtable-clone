@@ -2,74 +2,195 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-    provider = "prisma-client-js"
-    output   = "../generated/prisma"
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
 }
 
 datasource db {
-    provider = "postgresql"
-    // NOTE: When using mysql or sqlserver, uncomment the @db.Text annotations in model Account below
-    // Further reading:
-    // https://next-auth.js.org/adapters/prisma#create-the-prisma-schema
-    // https://www.prisma.io/docs/reference/api-reference/prisma-schema-reference#string
-    url      = env("DATABASE_URL")
+  provider = "postgresql"
+  // NOTE: When using mysql or sqlserver, uncomment the @db.Text annotations in model Account below
+  // Further reading:
+  // https://next-auth.js.org/adapters/prisma#create-the-prisma-schema
+  // https://www.prisma.io/docs/reference/api-reference/prisma-schema-reference#string
+  url      = env("DATABASE_URL")
 }
 
 model Post {
-    id        Int      @id @default(autoincrement())
-    name      String
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  id        Int      @id @default(autoincrement())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    createdBy   User   @relation(fields: [createdById], references: [id])
-    createdById String
+  createdBy   User   @relation(fields: [createdById], references: [id])
+  createdById String
 
-    @@index([name])
+  @@index([name])
 }
 
 // Necessary for Next auth
 model Account {
-    id                       String  @id @default(cuid())
-    userId                   String
-    type                     String
-    provider                 String
-    providerAccountId        String
-    refresh_token            String? // @db.Text
-    access_token             String? // @db.Text
-    expires_at               Int?
-    token_type               String?
-    scope                    String?
-    id_token                 String? // @db.Text
-    session_state            String?
-    user                     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-    refresh_token_expires_in Int?
+  id                       String  @id @default(cuid())
+  userId                   String
+  type                     String
+  provider                 String
+  providerAccountId        String
+  refresh_token            String? // @db.Text
+  access_token             String? // @db.Text
+  expires_at               Int?
+  token_type               String?
+  scope                    String?
+  id_token                 String? // @db.Text
+  session_state            String?
+  user                     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refresh_token_expires_in Int?
 
-    @@unique([provider, providerAccountId])
+  @@unique([provider, providerAccountId])
 }
 
 model Session {
-    id           String   @id @default(cuid())
-    sessionToken String   @unique
-    userId       String
-    expires      DateTime
-    user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model User {
-    id            String    @id @default(cuid())
-    name          String?
-    email         String?   @unique
-    emailVerified DateTime?
-    image         String?
-    accounts      Account[]
-    sessions      Session[]
-    posts         Post[]
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+
+  accounts Account[]
+  sessions Session[]
+  posts    Post[]
+
+  // NEW: all bases owned by this user
+  bases Base[] @relation("UserBases")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model VerificationToken {
-    identifier String
-    token      String   @unique
-    expires    DateTime
+  identifier String
+  token      String   @unique
+  expires    DateTime
 
-    @@unique([identifier, token])
+  @@unique([identifier, token])
+}
+
+// A "Base" = top-level container (like an Airtable base)
+model Base {
+  id   String @id @default(cuid())
+  name String
+
+  // who owns this base
+  owner   User   @relation("UserBases", fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId String
+
+  tables    Table[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// A "Table" inside a Base (e.g. "Tasks", "Customers", etc.)
+model Table {
+  id   String @id @default(cuid())
+  name String
+
+  base   Base   @relation(fields: [baseId], references: [id], onDelete: Cascade)
+  baseId String
+
+  fields  Field[]
+  records Record[]
+  views   View[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Column definition (name, type, order, hidden)
+model Field {
+  id      String @id @default(cuid())
+  table   Table  @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  tableId String
+
+  name     String
+  type     FieldType
+  order    Int
+  isHidden Boolean   @default(false)
+
+  cells Cell[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tableId, order])
+}
+
+// Types of fields supported for now
+enum FieldType {
+  TEXT
+  NUMBER
+}
+
+// A row in the table
+model Record {
+  id      String @id @default(cuid())
+  table   Table  @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  tableId String
+
+  cells Cell[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tableId])
+}
+
+// A cell = value for (record x field)
+model Cell {
+  id String @id @default(cuid())
+
+  record   Record @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  recordId String
+
+  field   Field  @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  fieldId String
+
+  // Only one of these is used depending on Field.type
+  valueText   String?
+  valueNumber Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // each (record, field) pair should have only one cell
+  @@unique([recordId, fieldId])
+  // indexes for searching/filtering/sorting
+  @@index([fieldId, valueText])
+  @@index([fieldId, valueNumber])
+}
+
+// Saved configuration for a View (filters, sorts, hidden columns, search)
+model View {
+  id   String @id @default(cuid())
+  name String
+
+  table   Table  @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  tableId String
+
+  // JSON structure something like:
+  // {
+  //   "filters": [{ "fieldId": "...", "op": "gt", "value": 10 }],
+  //   "sorts": [{ "fieldId": "...", "direction": "asc" }],
+  //   "hiddenFieldIds": ["..."],
+  //   "searchQuery": "foo"
+  // }
+  config Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

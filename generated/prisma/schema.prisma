@@ -61,9 +61,16 @@ model User {
   email         String?   @unique
   emailVerified DateTime?
   image         String?
-  accounts      Account[]
-  sessions      Session[]
-  posts         Post[]
+
+  accounts Account[]
+  sessions Session[]
+  posts    Post[]
+
+  // NEW: all bases owned by this user
+  bases Base[] @relation("UserBases")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model VerificationToken {
@@ -72,4 +79,118 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+// A "Base" = top-level container (like an Airtable base)
+model Base {
+  id   String @id @default(cuid())
+  name String
+
+  // who owns this base
+  owner   User   @relation("UserBases", fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId String
+
+  tables    Table[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// A "Table" inside a Base (e.g. "Tasks", "Customers", etc.)
+model Table {
+  id   String @id @default(cuid())
+  name String
+
+  base   Base   @relation(fields: [baseId], references: [id], onDelete: Cascade)
+  baseId String
+
+  fields  Field[]
+  records Record[]
+  views   View[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Column definition (name, type, order, hidden)
+model Field {
+  id      String @id @default(cuid())
+  table   Table  @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  tableId String
+
+  name     String
+  type     FieldType
+  order    Int
+  isHidden Boolean   @default(false)
+
+  cells Cell[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tableId, order])
+}
+
+// Types of fields supported for now
+enum FieldType {
+  TEXT
+  NUMBER
+}
+
+// A row in the table
+model Record {
+  id      String @id @default(cuid())
+  table   Table  @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  tableId String
+
+  cells Cell[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tableId])
+}
+
+// A cell = value for (record x field)
+model Cell {
+  id String @id @default(cuid())
+
+  record   Record @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  recordId String
+
+  field   Field  @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  fieldId String
+
+  // Only one of these is used depending on Field.type
+  valueText   String?
+  valueNumber Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // each (record, field) pair should have only one cell
+  @@unique([recordId, fieldId])
+  // indexes for searching/filtering/sorting
+  @@index([fieldId, valueText])
+  @@index([fieldId, valueNumber])
+}
+
+// Saved configuration for a View (filters, sorts, hidden columns, search)
+model View {
+  id   String @id @default(cuid())
+  name String
+
+  table   Table  @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  tableId String
+
+  // JSON structure something like:
+  // {
+  //   "filters": [{ "fieldId": "...", "op": "gt", "value": 10 }],
+  //   "sorts": [{ "fieldId": "...", "direction": "asc" }],
+  //   "hiddenFieldIds": ["..."],
+  //   "searchQuery": "foo"
+  // }
+  config Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
