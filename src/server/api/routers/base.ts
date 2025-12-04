@@ -12,7 +12,10 @@ export const baseRouter = createTRPCRouter({
     .input(z.object({ name: z.string() }))
     .mutation(async ({ ctx, input }) => {
       return ctx.db.base.create({
-        data: { name: input.name, ownerId: ctx.session?.user.id! },
+        data: {
+          name: input.name,
+          ownerId: ctx.session.user.id,
+        },
       });
     }),
 });
