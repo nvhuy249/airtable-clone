@@ -1,7 +1,19 @@
 import Link from "next/link";
 import { TbDatabase } from "react-icons/tb";
 
-export default function BaseCard({ base }: { base: any }) {
+export interface Base {
+  id: string;
+  name: string;
+  createdAt: Date;
+  updatedAt: Date;
+  ownerId: string;
+}
+
+interface BaseCardProps {
+  base: Base;
+}
+
+export default function BaseCard({ base }: BaseCardProps) {
   return (
     <Link
       href={`/base/${base.id}`}

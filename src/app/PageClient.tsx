@@ -8,12 +8,19 @@ import Banner from "./components/Banner";
 import QuickActions from "./components/QuickActions";
 import { signOut } from "next-auth/react";
 
-type Props = {
-  user: any;
-  bases: any[];
-};
+import type {Base} from "./components/BaseCard"; 
 
-export default function PageClient({ user, bases }: Props) {
+interface PageClientProps {
+  user: {
+    id: string;
+    name?: string | null;
+    email?: string | null;
+    image?: string | null;
+  };
+  bases: Base[];
+}
+
+export default function PageClient({ user, bases }: PageClientProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarHover, setSidebarHover] = useState(false)
 
@@ -37,8 +44,8 @@ export default function PageClient({ user, bases }: Props) {
           <QuickActions />
 
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {bases.map((b) => (
-              <BaseCard key={b.id} base={b} />
+            {bases.map((base) => (
+              <BaseCard key={base.id} base={base} />
             ))}
           </div>
         </main>

@@ -1,4 +1,4 @@
-import { createTRPCRouter, publicProcedure } from "../trpc";
+import { createTRPCRouter, publicProcedure, protectedProcedure } from "../trpc";
 import { z } from "zod";
 
 export const baseRouter = createTRPCRouter({
@@ -8,7 +8,7 @@ export const baseRouter = createTRPCRouter({
     });
   }),
 
-  create: publicProcedure
+  create: protectedProcedure
     .input(z.object({ name: z.string() }))
     .mutation(async ({ ctx, input }) => {
       return ctx.db.base.create({
