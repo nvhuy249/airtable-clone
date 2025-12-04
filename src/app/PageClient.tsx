@@ -50,14 +50,12 @@ export default function PageClient({ user, bases }: PageClientProps) {
           </div>
         </main>
       </div>
-      {process.env.NODE_ENV === "development" && (
-        <button
-            onClick={() => signOut()}
-            className="fixed bottom-4 right-4 z-[9999] bg-red-500 text-white px-3 py-1 rounded shadow hover:bg-red-600"
-        >
-            Sign out
-        </button>
-      )}
+      <button
+          onClick={() => signOut()}
+          className="fixed bottom-4 right-4 z-[9999] bg-red-500 text-white px-3 py-1 rounded shadow hover:bg-red-600"
+      >
+          Sign out
+      </button>
     </div>
   );
 }
