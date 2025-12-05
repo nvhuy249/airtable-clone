@@ -5,6 +5,10 @@ import { z } from "zod";
 const derivedNextAuthUrl =
   process.env.NEXTAUTH_URL ??
   (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined);
+const derivedNextAuthUrlInternal =
+  process.env.NEXTAUTH_URL_INTERNAL ??
+  derivedNextAuthUrl ??
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined);
 
 export const env = createEnv({
   /**
@@ -20,6 +24,7 @@ export const env = createEnv({
     GOOGLE_CLIENT_SECRET: z.string(),
     DATABASE_URL: z.string().url(),
     NEXTAUTH_URL: z.string().url().optional(),
+    NEXTAUTH_URL_INTERNAL: z.string().url().optional(),
     NODE_ENV: z
       .enum(["development", "test", "production"])
       .default("development"),
@@ -44,6 +49,7 @@ export const env = createEnv({
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
     DATABASE_URL: process.env.DATABASE_URL,
     NEXTAUTH_URL: derivedNextAuthUrl,
+    NEXTAUTH_URL_INTERNAL: derivedNextAuthUrlInternal,
     NODE_ENV: process.env.NODE_ENV,
   },
   /**
