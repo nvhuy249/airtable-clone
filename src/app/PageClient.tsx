@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 import BaseCard from "./components/BaseCard";
@@ -47,9 +47,7 @@ export default function PageClient({ user, bases }: PageClientProps) {
   const contentMargin = sidebarOpen ? "ml-64" : "ml-16";
 
   // Fake date filtering demo — update when you have timestamps
-  const filteredBases = useMemo(() => {
-    return basesState; // (modify when timestamps added)
-  }, [basesState, filter]);
+  const filteredBases = basesState; // (modify when timestamps added)
 
   const createBase = api.base.create.useMutation({
     onSuccess: (base) => {
@@ -59,7 +57,7 @@ export default function PageClient({ user, bases }: PageClientProps) {
   });
 
   const deleteBase = api.base.delete.useMutation({
-    onMutate: async ({ id }) => {
+    onMutate: async ({ id }): Promise<{ prev: Base[] }> => {
       const prev = basesState;
       setBasesState((old) => old.filter((b) => b.id !== id));
       return { prev };

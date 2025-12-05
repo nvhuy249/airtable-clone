@@ -4,10 +4,11 @@ import {
   flexRender,
   getCoreRowModel,
   useReactTable,
+  type CellContext,
 } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
 import { faker } from "@faker-js/faker";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -74,7 +75,8 @@ export default function BaseClient({
   const [data, setData] = useState<RowData[]>(seedRows);
 
   // ---------- COLUMNS (dynamic) ----------
-  type ColumnKey = (keyof RowData & string) | `custom_${number}`;
+  type ColumnKey = keyof RowData | `custom_${number}`;
+  type ColumnValue = string | number | undefined;
   const [columnOrder, setColumnOrder] = useState<ColumnKey[]>([
     "name",
     "notes",
@@ -84,13 +86,48 @@ export default function BaseClient({
     "attachmentNotes",
   ]);
 
-  const columns = useMemo<ColumnDef<RowData, any>[]>(() => {
-    const makeEditableCell =
-      (key: ColumnKey): ColumnDef<RowData>["cell"] =>
-      ({ row, getValue }) => {
+  const handleCellNavigation = useCallback(
+    (
+      e: React.KeyboardEvent<HTMLInputElement>,
+      rowIndex: number,
+      colIndex: number,
+    ) => {
+      const key = e.key;
+      let targetRow = rowIndex;
+      let targetCol = colIndex;
+
+      if (key === "ArrowRight" || (key === "Tab" && !e.shiftKey)) {
+        e.preventDefault();
+        targetCol = colIndex + 1;
+      } else if (key === "ArrowLeft" || (key === "Tab" && e.shiftKey)) {
+        e.preventDefault();
+        targetCol = colIndex - 1;
+      } else if (key === "ArrowDown") {
+        e.preventDefault();
+        targetRow = rowIndex + 1;
+      } else if (key === "ArrowUp") {
+        e.preventDefault();
+        targetRow = rowIndex - 1;
+      } else {
+        return; // let other keys behave normally
+      }
+
+      const selector = `input[data-row-index="${targetRow}"][data-col-index="${targetCol}"]`;
+      const next = document.querySelector<HTMLInputElement>(selector);
+      if (next) {
+        next.focus();
+        next.select();
+      }
+    },
+    [],
+  );
+
+  const columns = useMemo<ColumnDef<RowData, ColumnValue>[]>(() => {
+    const makeEditableCell = (key: ColumnKey) => {
+      const EditableCell = ({ row, getValue }: CellContext<RowData, ColumnValue>) => {
         const rowIndex = row.index;
         const colIndex = columnOrder.indexOf(key);
-        const cellValue = getValue() as string | number | undefined;
+        const cellValue = getValue();
 
         return (
           <input
@@ -112,6 +149,9 @@ export default function BaseClient({
           />
         );
       };
+      EditableCell.displayName = `EditableCell_${String(key)}`;
+      return EditableCell;
+    };
 
     const baseColumns: {
       id: ColumnKey;
@@ -175,7 +215,7 @@ export default function BaseClient({
       },
     ];
 
-    const cols: ColumnDef<RowData, any>[] = baseColumns
+    const cols: ColumnDef<RowData, ColumnValue>[] = baseColumns
       .filter((c) => columnOrder.includes(c.id))
       .map((c) => ({
         accessorKey: c.id,
@@ -184,7 +224,7 @@ export default function BaseClient({
       }));
 
     // selection checkbox column
-    const selectionCol: ColumnDef<RowData, any> = {
+    const selectionCol: ColumnDef<RowData, ColumnValue> = {
       id: "select",
       header: () => (
         <div className="flex items-center justify-center">
@@ -209,7 +249,7 @@ export default function BaseClient({
     };
 
     // first column: row number
-    const rowNumberCol: ColumnDef<RowData, any> = {
+    const rowNumberCol: ColumnDef<RowData, ColumnValue> = {
       id: "rowNumber",
       header: "",
       cell: ({ row }) => (
@@ -221,7 +261,7 @@ export default function BaseClient({
     };
 
     // trailing quick add column button (visual only)
-    const addFieldCol: ColumnDef<RowData, any> = {
+    const addFieldCol: ColumnDef<RowData, ColumnValue> = {
       id: "addField",
       header: () => (
         <div className="flex items-center justify-center">
@@ -236,47 +276,13 @@ export default function BaseClient({
     };
 
     return [selectionCol, rowNumberCol, ...cols, addFieldCol];
-  }, [columnOrder, setData]);
+  }, [columnOrder, handleCellNavigation]);
 
   const table = useReactTable({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
-
-  // ---------- CELL NAVIGATION ----------
-  const handleCellNavigation = (
-    e: React.KeyboardEvent<HTMLInputElement>,
-    rowIndex: number,
-    colIndex: number,
-  ) => {
-    const key = e.key;
-    let targetRow = rowIndex;
-    let targetCol = colIndex;
-
-    if (key === "ArrowRight" || (key === "Tab" && !e.shiftKey)) {
-      e.preventDefault();
-      targetCol = colIndex + 1;
-    } else if (key === "ArrowLeft" || (key === "Tab" && e.shiftKey)) {
-      e.preventDefault();
-      targetCol = colIndex - 1;
-    } else if (key === "ArrowDown") {
-      e.preventDefault();
-      targetRow = rowIndex + 1;
-    } else if (key === "ArrowUp") {
-      e.preventDefault();
-      targetRow = rowIndex - 1;
-    } else {
-      return; // let other keys behave normally
-    }
-
-    const selector = `input[data-row-index="${targetRow}"][data-col-index="${targetCol}"]`;
-    const next = document.querySelector<HTMLInputElement>(selector);
-    if (next) {
-      next.focus();
-      next.select();
-    }
-  };
 
   // ---------- UI ACTIONS ----------
   const addRow = () => {
@@ -295,7 +301,7 @@ export default function BaseClient({
   };
 
   const addColumn = () => {
-    const newKey = `custom_${columnOrder.length}` as ColumnKey;
+    const newKey = `custom_${columnOrder.length}` satisfies ColumnKey;
     setColumnOrder((old) => [...old, newKey]);
     setData((old) =>
       old.map((row) => ({
