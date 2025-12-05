@@ -13,12 +13,14 @@ interface SidebarProps {
   expanded: boolean
   onMouseEnter: () => void
   onMouseLeave: () => void
+  onCreateBase: () => void
 }
 
 export default function Sidebar({
   expanded,
   onMouseEnter,
-  onMouseLeave
+  onMouseLeave,
+  onCreateBase
 }: SidebarProps) {
   return (
     <aside
@@ -48,6 +50,7 @@ export default function Sidebar({
       </div>
 
       <button
+      onClick={onCreateBase}
         className={clsx(
           "mx-3 py-2 bg-[#216CFF] text-white rounded-md font-medium text-sm flex items-center justify-center",
           expanded ? "px-4" : "px-0"
