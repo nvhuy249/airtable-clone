@@ -30,7 +30,7 @@ import {
   FiBell,
 } from "react-icons/fi";
 
-type RowData = {
+type BaseFields = {
   id: number;
   name: string;
   notes: string;
@@ -38,7 +38,10 @@ type RowData = {
   status: string;
   attachments: string;
   attachmentNotes: string;
-} & Record<string, string | number>;
+};
+
+type CustomKey = `custom_${number}`;
+type RowData = BaseFields & Partial<Record<CustomKey, string>>;
 
 interface BaseClientProps {
   baseId: string;
@@ -75,7 +78,7 @@ export default function BaseClient({
   const [data, setData] = useState<RowData[]>(seedRows);
 
   // ---------- COLUMNS (dynamic) ----------
-  type ColumnKey = keyof RowData | `custom_${number}`;
+  type ColumnKey = keyof BaseFields | CustomKey;
   type ColumnValue = string | number | undefined;
   const [columnOrder, setColumnOrder] = useState<ColumnKey[]>([
     "name",
@@ -138,8 +141,8 @@ export default function BaseClient({
             onChange={(e) => {
               setData((old) => {
                 const copy = [...old];
-                (copy[rowIndex] as Record<string, string | number>)[key] =
-                  e.target.value;
+                const updatedRow = { ...copy[rowIndex], [key]: e.target.value } as RowData;
+                copy[rowIndex] = updatedRow;
                 return copy;
               });
             }}
@@ -301,7 +304,7 @@ export default function BaseClient({
   };
 
   const addColumn = () => {
-    const newKey = `custom_${columnOrder.length}` satisfies ColumnKey;
+    const newKey: CustomKey = `custom_${columnOrder.length}`;
     setColumnOrder((old) => [...old, newKey]);
     setData((old) =>
       old.map((row) => ({
