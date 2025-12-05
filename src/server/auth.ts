@@ -7,6 +7,7 @@ import { env } from "~/env";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(db),
+  trustHost: true,
   providers: [
     Google({
       clientId: env.GOOGLE_CLIENT_ID,
