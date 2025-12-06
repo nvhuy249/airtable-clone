@@ -50,17 +50,14 @@ export default function TableTopBar({
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const addMenuRef = useRef<HTMLDivElement | null>(null);
-  const activeTable = useMemo(
-    () => tables.find((t) => t.id === activeTableId),
-    [tables, activeTableId],
-  );
+  const activeTable = useMemo(() => tables.find((t) => t.id === activeTableId), [tables, activeTableId]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      if (!menuRef.current?.contains(e.target as Node)) {
         setMenuOpen(false);
       }
-      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
+      if (!addMenuRef.current?.contains(e.target as Node)) {
         setAddMenuOpen(false);
       }
     };

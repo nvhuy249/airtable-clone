@@ -194,13 +194,13 @@ export default function BaseTable({
 
       setColumnOrder((prev) => prev.filter((id) => id !== colId));
       setLocalFields((prev) => prev.filter((f) => f.id !== colId));
-    setData((prev) =>
-      prev.map((row) => {
-        const rest: RowData = { ...row };
-        delete rest[colId];
-        return rest;
-      }),
-    );
+      setData((prev) =>
+        prev.map((row) => {
+          const rest: RowData = { ...row };
+          delete rest[colId];
+          return rest;
+        }),
+      );
       setHeaderMenu(null);
     },
     [columnOrder, onDeleteColumn],
@@ -249,7 +249,7 @@ export default function BaseTable({
                   const copy = [...old];
                   const current = copy[rowIndex] as RowData;
                   const updatedRow: RowData = {
-                    ...current!,
+                    ...current,
                     [key]: e.target.value,
                   };
                   copy[rowIndex] = updatedRow;
