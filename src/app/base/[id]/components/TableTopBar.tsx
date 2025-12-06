@@ -57,10 +57,10 @@ export default function TableTopBar({
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (menuRef.current?.contains(e.target as Node) === false) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
       }
-      if (addMenuRef.current?.contains(e.target as Node) === false) {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
         setAddMenuOpen(false);
       }
     };

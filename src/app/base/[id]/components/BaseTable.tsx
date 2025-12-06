@@ -249,7 +249,7 @@ export default function BaseTable({
                   const copy = [...old];
                   const current = copy[rowIndex] as RowData;
                   const updatedRow: RowData = {
-                    ...current,
+                    ...current!,
                     [key]: e.target.value,
                   };
                   copy[rowIndex] = updatedRow;
