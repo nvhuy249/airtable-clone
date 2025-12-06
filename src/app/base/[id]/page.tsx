@@ -21,6 +21,7 @@ export default async function BasePage({
     <BaseClient
       baseId={base.id}
       baseName={base.name}
+      tables={base.tables.map((t) => ({ id: t.id, name: t.name }))}
       user={session.user}
     />
   );

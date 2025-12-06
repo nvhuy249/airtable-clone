@@ -1,97 +1,174 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import {
   ChevronDown,
-  Check,
+  Import,
+  Pen,
   EyeOff,
-  MoreHorizontal,
+  SlidersHorizontal,
+  Copy,
+  CalendarClock,
+  AlignLeft,
+  Shield,
+  X,
+  Trash2,
   Plus,
-  Search,
 } from "lucide-react";
-import TableToolbar from "./TableToolbar";
 
 interface TableTopBarProps {
   tables: { id: string; name: string }[];
   activeTableId: string;
   onChangeTable: (id: string) => void;
+  onAddTable: () => void;
+  onRenameTable: (id: string, name: string) => void;
+  onDeleteTable: (id: string) => void;
 }
+
+const menuItems = [
+  { label: "Import data", icon: Import },
+  { label: "Rename table", icon: Pen },
+  { label: "Hide table", icon: EyeOff },
+  { label: "Manage fields", icon: SlidersHorizontal },
+  { label: "Duplicate table", icon: Copy },
+  { label: "Configure date dependencies", icon: CalendarClock },
+  { label: "Edit table description", icon: AlignLeft },
+  { label: "Edit table permissions", icon: Shield },
+  { label: "Clear data", icon: X },
+  { label: "Delete table", icon: Trash2, danger: true },
+];
 
 export default function TableTopBar({
   tables,
   activeTableId,
   onChangeTable,
+  onAddTable,
+  onRenameTable,
+  onDeleteTable,
 }: TableTopBarProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const addMenuRef = useRef<HTMLDivElement | null>(null);
+  const activeTable = useMemo(
+    () => tables.find((t) => t.id === activeTableId),
+    [tables, activeTableId],
+  );
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+      if (
+        addMenuRef.current &&
+        !addMenuRef.current.contains(e.target as Node)
+      ) {
+        setAddMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
   return (
-    <div className="relative flex items-center justify-between h-10 px-5 border-b border-gray-200 bg-white text-sm">
-      {/* LEFT: table switcher + Add or import */}
+    <div className="flex items-center justify-between h-10 px-4 border-b border-gray-200 bg-[#f7f7fa] text-sm relative">
+      {/* table tabs + add/import */}
       <div className="flex items-center gap-2 text-sm">
-        <button
-          onClick={() => setOpen((p) => !p)}
-          className="flex items-center gap-1 px-3 py-1 rounded border border-transparent hover:border-gray-300"
-        >
-          <span className="font-medium">
-            {activeTable ? activeTable.name : "Tables"}
-          </span>
-          <ChevronDown className="h-4 w-4 text-gray-500" />
-        </button>
+        <div className="flex items-center gap-1">
+          {tables.map((t) => {
+            const isActive = t.id === activeTableId;
+            return (
+              <button
+                key={t.id}
+                onClick={() => onChangeTable(t.id)}
+                className={`px-3 py-1 rounded-sm border text-sm ${
+                  isActive
+                    ? "bg-white border-gray-300 font-medium"
+                    : "bg-[#f7f7fa] border-transparent hover:border-gray-300"
+                }`}
+              >
+                {t.name}
+                {isActive && (
+                  <ChevronDown
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMenuOpen((p) => !p);
+                    }}
+                    className="ml-1 h-4 w-4 text-gray-600 inline-block align-middle"
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
         <div className="h-5 w-px bg-gray-200" />
-        <button className="px-3 py-1 text-xs rounded-full border border-gray-300 hover:bg-gray-50">
-          + Add or import
-        </button>
+        <div className="flex items-center gap-1">
+          <button className="px-3 py-1 text-xs rounded-full border border-gray-300 hover:bg-gray-50">
+            + Add or import
+          </button>
+          <button
+            onClick={() => setAddMenuOpen((p) => !p)}
+            className="flex items-center gap-1 px-2 py-1 text-xs rounded-sm border border-transparent hover:border-gray-300"
+            aria-label="Add table menu"
+          >
+            <ChevronDown className="h-4 w-4 text-gray-600" />
+          </button>
+        </div>
       </div>
 
-      {/* RIGHT: tools */}
-      <TableToolbar />
+      {menuOpen && (
+        <div
+          ref={menuRef}
+          className="absolute left-4 top-10 z-40 w-72 rounded-lg border border-gray-200 bg-white shadow-xl text-sm text-gray-800"
+        >
+          <div className="py-2">
+            {menuItems.map(({ label, icon: Icon, danger }) => (
+              <button
+                key={label}
+                onClick={() => {
+                  if (label === "Rename table" && activeTable) {
+                    const nextName = window.prompt(
+                      "Rename table",
+                      activeTable.name,
+                    );
+                    if (nextName && nextName.trim()) {
+                      onRenameTable(activeTable.id, nextName.trim());
+                    }
+                    setMenuOpen(false);
+                    return;
+                  }
+                  if (danger && activeTable) {
+                    onDeleteTable(activeTable.id);
+                    setMenuOpen(false);
+                    return;
+                  }
+                  setMenuOpen(false);
+                }}
+                className={`w-full px-4 py-2 flex items-center gap-3 hover:bg-gray-50`}>
+                <Icon className="h-4 w-4" />
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
-      {open && (
-        <div className="absolute top-10 left-4 z-40 w-72 rounded-lg border border-gray-200 bg-white shadow-xl text-gray-800">
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 text-sm text-gray-500">
-            <Search className="h-4 w-4" />
-            <input
-              placeholder="Find a table"
-              className="flex-1 bg-transparent outline-none text-gray-700 text-sm"
-            />
-          </div>
-          <div className="max-h-72 overflow-auto py-2 text-sm">
-            {tables.map((t) => {
-              const isActive = t.id === activeTableId;
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => {
-                    onChangeTable(t.id);
-                    setOpen(false);
-                  }}
-                  className={`w-full px-3 py-2 flex items-center justify-between hover:bg-gray-50 ${isActive ? "font-semibold text-gray-900" : "text-gray-800"}`}
-                >
-                  <div className="flex items-center gap-2">
-                    {isActive ? (
-                      <Check className="h-4 w-4 text-blue-500" />
-                    ) : (
-                      <div className="h-4 w-4" />
-                    )}
-                    <span>{t.name}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-gray-500">
-                    <EyeOff className="h-4 w-4" />
-                    <MoreHorizontal className="h-4 w-4" />
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-          <div className="border-t border-gray-200">
-            <button
-              onClick={() => {
-                onAddTable();
-                setOpen(false);
-              }}
-              className="w-full px-3 py-2 flex items-center gap-2 hover:bg-gray-50 text-sm text-gray-700"
-            >
-              <Plus className="h-4 w-4" /> Add table
-            </button>
-          </div>
+      {addMenuOpen && (
+        <div
+          ref={addMenuRef}
+          className="absolute left-48 top-10 z-40 w-56 rounded-lg border border-gray-200 bg-white shadow-xl text-sm text-gray-800"
+        >
+          <button
+            onClick={() => {
+              onAddTable();
+              setAddMenuOpen(false);
+            }}
+            className="w-full px-4 py-2 flex items-center gap-3 hover:bg-gray-50"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Add table</span>
+          </button>
         </div>
       )}
     </div>

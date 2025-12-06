@@ -17,14 +17,32 @@ import { TbDatabase } from "react-icons/tb";
 export interface Base {
   id: string;
   name: string;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string | Date;
+  updatedAt: string | Date;
   ownerId: string;
 }
 
 interface BaseCardProps {
   base: Base;
   onDelete?: (id: string) => void;
+}
+
+function formatRelativeTime(value: string | Date) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "Created just now";
+
+  const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+  if (seconds < 60) return "Created just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `Created ${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Created ${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `Created ${days} day${days === 1 ? "" : "s"} ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `Created ${months} month${months === 1 ? "" : "s"} ago`;
+  const years = Math.floor(months / 12);
+  return `Created ${years} year${years === 1 ? "" : "s"} ago`;
 }
 
 export default function BaseCard({ base, onDelete }: BaseCardProps) {
@@ -51,6 +69,7 @@ export default function BaseCard({ base, onDelete }: BaseCardProps) {
   };
 
   const closeMenu = () => setMenuOpen(false);
+  const createdLabel = formatRelativeTime(base.createdAt);
 
   return (
     <div
@@ -77,8 +96,8 @@ export default function BaseCard({ base, onDelete }: BaseCardProps) {
                 {base.name || "Untitled Base"}
               </Link>
               <div className="flex items-center gap-1 text-xs text-gray-600">
-                <TbDatabase className="text-gray-500" />
-                <span>Open data</span>
+                {hovered && <TbDatabase className="text-gray-500" />}
+                <span>{hovered ? "Open data" : createdLabel}</span>
               </div>
             </div>
 
