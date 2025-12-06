@@ -6,7 +6,7 @@ export default function AppRail({ userInitial }: { userInitial: string }) {
   return (
     <div className="w-16 bg-white border border-gray-300 flex flex-col items-center py-4 h-screen">
       <Link href="/" className="h-10 w-10 rounded-lg flex items-center justify-center">
-        <img src="/airtable-logo.png" className="h-6 w-6" />
+        <img src="/airtable-logo.png" alt="Airtable home" className="h-6 w-6" />
       </Link>
 
       <div className="h-10 w-10 border-2 border-dashed rounded-lg mt-3" />

@@ -5,7 +5,7 @@ import {
   type CellContext,
   type ColumnDef,
 } from "@tanstack/react-table";
-import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FiChevronDown, FiCircle, FiPaperclip, FiPlus, FiType, FiUser } from "react-icons/fi";
 
 type FieldShape = {
@@ -110,10 +110,10 @@ export default function BaseTable({
 
   useEffect(() => {
     const useFields =
-      fields && fields.length
-        ? [...fields].sort((a, b) => a.order - b.order)
-        : DEFAULT_FIELDS;
-    const useRecords = records && records.length ? records : DEFAULT_RECORDS;
+      (fields?.length ? [...fields] : DEFAULT_FIELDS).sort(
+        (a, b) => a.order - b.order,
+      );
+    const useRecords = records?.length ? records : DEFAULT_RECORDS;
     setLocalFields(useFields);
     setColumnOrder(useFields.map((f) => f.id));
     setData(buildRows(useFields, useRecords));
@@ -196,7 +196,7 @@ export default function BaseTable({
       setLocalFields((prev) => prev.filter((f) => f.id !== colId));
       setData((prev) =>
         prev.map((row) => {
-          const { [colId]: _omit, ...rest } = row as Record<string, ColumnValue>;
+          const { [colId]: _removed, ...rest } = row as Record<string, ColumnValue>;
           return rest as RowData;
         }),
       );
