@@ -559,7 +559,7 @@ export default function BaseTable({
             danger
             onClick={() => {
               if (!onDeleteRecords || targetRecordIds.length === 0) return;
-              onDeleteRecords([targetRecordIds[0]]);
+              onDeleteRecords([targetRecordIds[0] as string]);
               setContextMenu(null);
             }}
           />
