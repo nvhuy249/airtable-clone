@@ -247,7 +247,7 @@ export default function BaseTable({
               onChange={(e) => {
                 setData((old) => {
                   const copy = [...old];
-                  const current = copy[rowIndex] as RowData;
+                  const current = copy[rowIndex]!;
                   const updatedRow: RowData = {
                     ...current,
                     [key]: e.target.value,

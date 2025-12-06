@@ -121,18 +121,19 @@ export default function TableTopBar({
               <button
                 key={label}
                 onClick={() => {
-                  if (label === "Rename table" && activeTable) {
+                  if (label === "Rename table") {
                     const nextName = window.prompt(
                       "Rename table",
-                      activeTable.name,
+                      activeTable?.name ?? "",
                     );
-                    if (nextName && nextName.trim()) {
-                      onRenameTable(activeTable.id, nextName.trim());
+                    const trimmed = nextName?.trim();
+                    if (trimmed && activeTable?.id) {
+                      onRenameTable(activeTable.id, trimmed);
                     }
                     setMenuOpen(false);
                     return;
                   }
-                  if (danger && activeTable) {
+                  if (danger && activeTable?.id) {
                     onDeleteTable(activeTable.id);
                     setMenuOpen(false);
                     return;
