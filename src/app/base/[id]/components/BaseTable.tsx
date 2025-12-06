@@ -194,12 +194,13 @@ export default function BaseTable({
 
       setColumnOrder((prev) => prev.filter((id) => id !== colId));
       setLocalFields((prev) => prev.filter((f) => f.id !== colId));
-      setData((prev) =>
-        prev.map((row) => {
-          const { [colId]: _removed, ...rest } = row as Record<string, ColumnValue>;
-          return rest as RowData;
-        }),
-      );
+    setData((prev) =>
+      prev.map((row) => {
+        const rest: RowData = { ...row };
+        delete rest[colId];
+        return rest;
+      }),
+    );
       setHeaderMenu(null);
     },
     [columnOrder, onDeleteColumn],
@@ -246,10 +247,11 @@ export default function BaseTable({
               onChange={(e) => {
                 setData((old) => {
                   const copy = [...old];
-                  const updatedRow = {
-                    ...copy[rowIndex],
+                  const current = copy[rowIndex] as RowData;
+                  const updatedRow: RowData = {
+                    ...current,
                     [key]: e.target.value,
-                  } as RowData;
+                  };
                   copy[rowIndex] = updatedRow;
                   return copy;
                 });
@@ -304,7 +306,7 @@ export default function BaseTable({
       id: "rowNumber",
       header: "",
       cell: ({ row }) => {
-        const recordId = (row.original as RowData).__recordId;
+        const recordId = row.original.__recordId;
         const isSelected = selectedRows.has(recordId);
         const showCheckbox = hoveredRow === row.index || isSelected;
         return (
@@ -469,7 +471,7 @@ export default function BaseTable({
           <tbody>
             {table.getRowModel().rows.map((row) => {
               const rowHovered = hoveredRow === row.index;
-              const recordId = (row.original as RowData).__recordId;
+              const recordId = row.original.__recordId;
               const isSelected = selectedRows.has(recordId);
               return (
                 <tr

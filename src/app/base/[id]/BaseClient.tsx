@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import AppRail from "./components/AppRail";
 import TableTopBar from "./components/TableTopBar";
 import TableToolbar from "./components/TableToolbar";
@@ -151,11 +152,14 @@ export default function BaseClient({
         <div className="flex items-center justify-between px-5 py-3 border border-gray-200 bg-white">
           {/* LEFT: logo + base name */}
           <div className="flex items-center gap-3 min-w-[220px]">
-            <img
+            <Image
               src="/airtable-logo.png"
-              alt=""
+              alt="Airtable logo"
+              width={28}
+              height={28}
               className="h-7 w-7 rounded border border-gray-300 p-1 cursor-pointer"
               onClick={() => (window.location.href = "/")}
+              priority
             />
             <div className="font-semibold text-sm">{baseName}</div>
           </div>
