@@ -206,7 +206,7 @@ export default function BaseTable({
   );
 
   const selectedRecordIds = useMemo(() => {
-    return Array.from(selectedRows).filter((id) => Boolean(id));
+    return Array.from(selectedRows).filter((id): id is string => Boolean(id));
   }, [selectedRows]);
 
   const fieldLookup = useMemo(
@@ -559,7 +559,7 @@ export default function BaseTable({
             danger
             onClick={() => {
               if (!onDeleteRecords || targetRecordIds.length === 0) return;
-              onDeleteRecords([targetRecordIds[0] as string]);
+              onDeleteRecords([targetRecordIds[0]!]);
               setContextMenu(null);
             }}
           />

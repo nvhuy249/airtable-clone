@@ -52,7 +52,7 @@ export const tableRouter = createTRPCRouter({
       }
 
       const nextIndex = base.tables.length + 1;
-      const tableName = input.name?.trim() || `Table ${nextIndex}`;
+      const tableName = input.name?.trim() ?? `Table ${nextIndex}`;
 
       const fullTable = await ctx.db.$transaction(async (tx) => {
         const table = await tx.table.create({
@@ -136,7 +136,7 @@ export const tableRouter = createTRPCRouter({
       }
 
       const order = table.fields.length;
-      const fieldName = input.name?.trim() || `Field ${order + 1}`;
+      const fieldName = input.name?.trim() ?? `Field ${order + 1}`;
 
       const { field, cells } = await ctx.db.$transaction(async (tx) => {
         const newField = await tx.field.create({
