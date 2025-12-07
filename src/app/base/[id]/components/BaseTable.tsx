@@ -5,17 +5,21 @@ import {
   type CellContext,
   type ColumnDef,
 } from "@tanstack/react-table";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FiChevronDown, FiCircle, FiPaperclip, FiPlus, FiType, FiUser } from "react-icons/fi";
+import type React from "react";
+
+type FieldType = "TEXT" | "NUMBER";
 
 type FieldShape = {
   id: string;
   name: string;
-  type: string;
+  type: FieldType;
   order: number;
 };
 
 type CellShape = {
+  id?: string;
   fieldId: string;
   valueText: string | null;
   valueNumber: number | null;
@@ -29,6 +33,34 @@ type RecordShape = {
 type ColumnValue = string | number | null | undefined;
 type RowData = Record<string, ColumnValue> & { __recordId: string };
 
+const displayValue = (value: ColumnValue) => (value == null ? "" : String(value));
+
+const readCellValue = (field: FieldShape, cell?: CellShape | null): ColumnValue => {
+  if (!cell) return null;
+  return field.type === "NUMBER"
+    ? cell.valueNumber ?? null
+    : cell.valueText ?? cell.valueNumber ?? null;
+};
+
+const normalizeValueForField = (
+  rawValue: string,
+  field?: FieldShape,
+): string | number | null | undefined => {
+  if (!field || field.type !== "NUMBER") {
+    return rawValue === "" ? null : rawValue;
+  }
+  if (rawValue === "") return null;
+  const parsed = Number(rawValue);
+  if (Number.isNaN(parsed)) return undefined;
+  return parsed;
+};
+
+const valuesEqual = (a: string | number | null, b: string | number | null) => {
+  if (a === null || b === null) return a === b;
+  if (typeof a === "number" && typeof b === "number") return a === b;
+  return String(a) === String(b);
+};
+
 interface BaseTableProps {
   fields: FieldShape[];
   records: RecordShape[];
@@ -37,6 +69,9 @@ interface BaseTableProps {
   onAddRow?: () => void;
   onDeleteColumn?: (fieldId: string) => void;
   onDeleteRecords?: (recordIds: string[]) => void;
+  onCellChange?: (recordId: string, fieldId: string, value: string | number | null) => void;
+  activeCellIndex?: [number, number];
+  onActiveCellIndexChange?: (coords: [number, number]) => void;
 }
 
 const DEFAULT_FIELDS: FieldShape[] = [
@@ -57,7 +92,7 @@ function buildRows(fields: FieldShape[], records: RecordShape[]): RowData[] {
     const row: RowData = { __recordId: record.id };
     sortedFields.forEach((field) => {
       const cell = record.cells.find((c) => c.fieldId === field.id);
-      const value = cell?.valueText ?? cell?.valueNumber ?? null;
+      const value = readCellValue(field, cell);
       row[field.id] = value ?? "";
     });
     return row;
@@ -72,6 +107,17 @@ function createEmptyRow(fields: FieldShape[]): RowData {
   return row;
 }
 
+function createEmptyRecord(fields: FieldShape[]): RecordShape {
+  return {
+    id: `temp-${Date.now()}`,
+    cells: fields.map((field) => ({
+      fieldId: field.id,
+      valueText: null,
+      valueNumber: null,
+    })),
+  };
+}
+
 export default function BaseTable({
   fields,
   records,
@@ -80,8 +126,12 @@ export default function BaseTable({
   onAddRow,
   onDeleteColumn,
   onDeleteRecords,
+  onCellChange: _onCellChange,
+  activeCellIndex: _activeCellIndex,
+  onActiveCellIndexChange: _onActiveCellIndexChange,
 }: BaseTableProps) {
   const [localFields, setLocalFields] = useState<FieldShape[]>(DEFAULT_FIELDS);
+  const [localRecords, setLocalRecords] = useState<RecordShape[]>(DEFAULT_RECORDS);
   const [columnOrder, setColumnOrder] = useState<string[]>(
     DEFAULT_FIELDS.map((f) => f.id),
   );
@@ -90,10 +140,6 @@ export default function BaseTable({
   );
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
   const [hoveredHeader, setHoveredHeader] = useState<string | null>(null);
-  const [activeCell, setActiveCell] = useState<{
-    rowIndex: number;
-    colId: string;
-  } | null>(null);
   const [headerMenu, setHeaderMenu] = useState<string | null>(null);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{
@@ -101,6 +147,8 @@ export default function BaseTable({
     y: number;
     recordId: string;
   } | null>(null);
+  const [activeCell, setActiveCell] = useState<{ rowIndex: number; colId: string } | null>(null);
+  const tableWrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const close = () => setContextMenu(null);
@@ -109,59 +157,44 @@ export default function BaseTable({
   }, []);
 
   useEffect(() => {
-    const useFields =
-      (fields?.length ? [...fields] : DEFAULT_FIELDS).sort(
-        (a, b) => a.order - b.order,
-      );
-    const useRecords = records?.length ? records : DEFAULT_RECORDS;
+    if (!_activeCellIndex) return;
+    const [rowIndex, colIndex] = _activeCellIndex;
+    const colId = columnOrder[colIndex];
+    if (colId === undefined) return;
+    setActiveCell({ rowIndex, colId });
+  }, [_activeCellIndex, columnOrder]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (!tableWrapperRef.current) return;
+      if (!tableWrapperRef.current.contains(e.target as Node)) {
+        setActiveCell(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const useFields = (fields ?? DEFAULT_FIELDS).sort(
+      (a, b) => a.order - b.order,
+    );
+    const useRecords = records ?? DEFAULT_RECORDS;
     setLocalFields(useFields);
+    setLocalRecords(useRecords);
     setColumnOrder(useFields.map((f) => f.id));
     setData(buildRows(useFields, useRecords));
     setSelectedRows(new Set());
     setContextMenu(null);
+    setActiveCell(null);
   }, [fields, records]);
-
-  const handleCellNavigation = useCallback(
-    (
-      e: React.KeyboardEvent<HTMLInputElement>,
-      rowIndex: number,
-      colIndex: number,
-    ) => {
-      const key = e.key;
-      let targetRow = rowIndex;
-      let targetCol = colIndex;
-
-      if (key === "ArrowRight" || (key === "Tab" && !e.shiftKey)) {
-        e.preventDefault();
-        targetCol = colIndex + 1;
-      } else if (key === "ArrowLeft" || (key === "Tab" && e.shiftKey)) {
-        e.preventDefault();
-        targetCol = colIndex - 1;
-      } else if (key === "ArrowDown") {
-        e.preventDefault();
-        targetRow = rowIndex + 1;
-      } else if (key === "ArrowUp") {
-        e.preventDefault();
-        targetRow = rowIndex - 1;
-      } else {
-        return;
-      }
-
-      const selector = `input[data-row-index="${targetRow}"][data-col-index="${targetCol}"]`;
-      const next = document.querySelector<HTMLInputElement>(selector);
-      if (next) {
-        next.focus();
-        next.select();
-      }
-    },
-    [],
-  );
-
   const addRow = useCallback(() => {
     if (onAddRow) {
       onAddRow();
       return;
     }
+    const newRecord = createEmptyRecord(localFields);
+    setLocalRecords((prev) => [...prev, newRecord]);
     setData((old) => [...old, createEmptyRow(localFields)]);
   }, [localFields, onAddRow]);
 
@@ -179,6 +212,15 @@ export default function BaseTable({
     };
     setLocalFields((prev) => [...prev, newField]);
     setColumnOrder((prev) => [...prev, newFieldId]);
+    setLocalRecords((prev) =>
+      prev.map((record) => ({
+        ...record,
+        cells: [
+          ...record.cells,
+          { fieldId: newFieldId, valueText: null, valueNumber: null },
+        ],
+      })),
+    );
     setData((prev) => prev.map((row) => ({ ...row, [newFieldId]: "" })));
   }, [localFields.length, onAddColumn]);
 
@@ -194,6 +236,12 @@ export default function BaseTable({
 
       setColumnOrder((prev) => prev.filter((id) => id !== colId));
       setLocalFields((prev) => prev.filter((f) => f.id !== colId));
+      setLocalRecords((prev) =>
+        prev.map((record) => ({
+          ...record,
+          cells: record.cells.filter((c) => c.fieldId !== colId),
+        })),
+      );
       setData((prev) =>
         prev.map((row) => {
           const rest: RowData = { ...row };
@@ -219,54 +267,196 @@ export default function BaseTable({
     [localFields],
   );
 
+  const recordCellLookup = useMemo(() => {
+    const lookup = new Map<string, CellShape>();
+    localRecords.forEach((record) => {
+      record.cells.forEach((cell) => {
+        lookup.set(`${record.id}:${cell.fieldId}`, cell);
+      });
+    });
+    return lookup;
+  }, [localRecords]);
+
+  const getCanonicalValue = useCallback(
+    (recordId: string, fieldId: string): string | number | null => {
+      const field = fieldLookup[fieldId];
+      const cell = recordCellLookup.get(`${recordId}:${fieldId}`);
+      if (!field || !cell) return null;
+      const value = readCellValue(field, cell);
+      return value == null ? null : value;
+    },
+    [fieldLookup, recordCellLookup],
+  );
+
+  const updateActiveCell = useCallback(
+    (rowIndex: number, colIndex: number) => {
+      const colId = columnOrder[colIndex];
+      if (colId === undefined) return;
+      setActiveCell({ rowIndex, colId });
+      _onActiveCellIndexChange?.([rowIndex, colIndex]);
+    },
+    [columnOrder, _onActiveCellIndexChange],
+  );
+
+  const handleCellNavigation = useCallback(
+    (
+      e: React.KeyboardEvent<HTMLInputElement>,
+      rowIndex: number,
+      colIndex: number,
+      rowCount: number,
+    ) => {
+      if (colIndex < 0 || columnOrder.length === 0) return;
+
+      const key = e.key;
+      let targetRow = rowIndex;
+      let targetCol = colIndex;
+
+      const lastCol = columnOrder.length - 1;
+      const clampRow = (r: number) => Math.min(Math.max(r, 0), rowCount - 1);
+
+      if (key === "ArrowRight" || (key === "Tab" && !e.shiftKey)) {
+        e.preventDefault();
+        targetCol = colIndex + 1;
+        if (targetCol > lastCol) {
+          targetCol = 0;
+          targetRow = clampRow(rowIndex + 1);
+        }
+      } else if (key === "ArrowLeft" || (key === "Tab" && e.shiftKey)) {
+        e.preventDefault();
+        targetCol = colIndex - 1;
+        if (targetCol < 0) {
+          targetCol = lastCol;
+          targetRow = clampRow(rowIndex - 1);
+        }
+      } else if (key === "ArrowDown") {
+        e.preventDefault();
+        targetRow = clampRow(rowIndex + 1);
+      } else if (key === "ArrowUp") {
+        e.preventDefault();
+        targetRow = clampRow(rowIndex - 1);
+      } else {
+        return;
+      }
+
+      if (targetCol < 0 || targetCol > lastCol) return;
+
+      updateActiveCell(targetRow, targetCol);
+
+      const selector = `input[data-row-index="${targetRow}"][data-col-index="${targetCol}"]`;
+      const next = document.querySelector<HTMLInputElement>(selector);
+      if (next) {
+        next.focus();
+        next.select();
+      }
+    },
+    [columnOrder.length, updateActiveCell],
+  );
+
   const columns = useMemo<ColumnDef<RowData, ColumnValue>[]>(() => {
     const makeEditableCell = (key: string) => {
       const EditableCell = ({
         row,
         getValue,
       }: CellContext<RowData, ColumnValue>) => {
+        const inputRef = useRef<HTMLInputElement>(null);
+        const cellValue = getValue();
+        const [editValue, setEditValue] = useState<string>(cellValue == null ? "" : String(cellValue));
         const rowIndex = row.index;
         const colIndex = columnOrder.indexOf(key);
-        const cellValue = getValue();
+        const recordId = row.original.__recordId;
+        const field = fieldLookup[key];
+        const canonicalValue = getCanonicalValue(recordId, key);
+        const isNumberField = field?.type === "NUMBER";
         const isActive =
-          activeCell?.rowIndex === rowIndex && activeCell.colId === String(key);
+          (activeCell?.rowIndex === rowIndex && activeCell?.colId === String(key)) ||
+          (_activeCellIndex?.[0] === rowIndex && _activeCellIndex?.[1] === colIndex);
+
+        useEffect(() => {
+          setEditValue(cellValue == null ? "" : String(cellValue));
+        }, [cellValue]);
+
+        const commitChange = useCallback(() => {
+          if (!_onCellChange) return;
+          const normalized = normalizeValueForField(editValue, field);
+          if (normalized === undefined) {
+            const resetValue = displayValue(canonicalValue);
+            setEditValue(resetValue);
+            setData((old) => {
+              const copy = [...old];
+              const current = copy[rowIndex];
+              if (!current) return old;
+              copy[rowIndex] = { ...current, [key]: resetValue };
+              return copy;
+            });
+            return;
+          }
+          if (valuesEqual(normalized ?? null, (canonicalValue ?? null) as string | number | null)) {
+            return;
+          }
+          _onCellChange(recordId, key, normalized);
+        }, [canonicalValue, editValue, field, key, recordId, rowIndex, _onCellChange]);
 
         return (
-          <div className="relative px-2 py-[6px]">
-            {isActive && (
-              <>
-                <div className="pointer-events-none absolute inset-0 border-2 border-[#1e73ff] rounded-[3px]" />
-                <div className="pointer-events-none absolute h-3 w-3 border-2 border-[#1e73ff] bg-white rounded-[3px] bottom-[-6px] right-[-6px]" />
-              </>
-            )}
-            <input
-              className="w-full h-full text-sm outline-none bg-transparent"
-              value={cellValue ?? ""}
-              data-row-index={rowIndex}
-              data-col-index={colIndex}
-              onChange={(e) => {
-                setData((old) => {
-                  const copy = [...old];
-                  const current = copy[rowIndex]!;
-                  const updatedRow: RowData = {
-                    ...current,
-                    [key]: e.target.value,
-                  };
-                  copy[rowIndex] = updatedRow;
-                  return copy;
-                });
-              }}
-              onFocus={() => setActiveCell({ rowIndex, colId: String(key) })}
-              onKeyDown={(e) => {
-                handleCellNavigation(e, rowIndex, colIndex);
-              }}
-            />
+          <div
+            className={`flex h-full min-h-[36px] items-stretch rounded-[3px] border border-transparent transition-colors ${
+              isActive
+                ? "border-[#1e73ff] ring-1 ring-[#1e73ff]"
+                : "focus-within:border-[#1e73ff] focus-within:ring-1 focus-within:ring-[#1e73ff]"
+            }`}
+            onClick={() => {
+              updateActiveCell(rowIndex, colIndex);
+              inputRef.current?.focus();
+              inputRef.current?.select();
+            }}
+          >
+            <div className="flex flex-auto">
+              <input
+                ref={inputRef}
+                type={isNumberField ? "number" : "text"}
+                className="w-full bg-transparent border-0 outline-none focus:outline-none focus:ring-0 px-[6px] py-[6px] text-sm leading-5 text-gray-900"
+                value={editValue}
+                data-row-index={rowIndex}
+                data-col-index={colIndex}
+                data-col-id={String(key)}
+                onFocus={() => updateActiveCell(rowIndex, colIndex)}
+                onChange={(e) => {
+                  const nextValue = e.target.value;
+                  setEditValue(nextValue);
+                  setData((old) => {
+                    const copy = [...old];
+                    const current = copy[rowIndex];
+                    if (!current) return old;
+                    copy[rowIndex] = { ...current, [key]: nextValue };
+                    return copy;
+                  });
+                }}
+                onBlur={commitChange}
+                onKeyDown={(e) => {
+                  if (
+                    e.key === "ArrowUp" ||
+                    e.key === "ArrowDown" ||
+                    e.key === "ArrowLeft" ||
+                    e.key === "ArrowRight" ||
+                    e.key === "Tab"
+                  ) {
+                    handleCellNavigation(e, rowIndex, colIndex, data.length);
+                    return;
+                  }
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    e.currentTarget.blur();
+                  }
+                }}
+              />
+            </div>
           </div>
         );
       };
+
       EditableCell.displayName = `EditableCell_${String(key)}`;
       return EditableCell;
     };
+
 
     const columnLetter = (index: number) =>
       String.fromCharCode("A".charCodeAt(0) + index);
@@ -363,7 +553,21 @@ export default function BaseTable({
     };
 
     return [rowNumberCol, ...cols, addFieldCol];
-  }, [columnOrder, activeCell, handleCellNavigation, addColumn, fieldLookup, hoveredRow, selectedRows]);
+  }, [
+    columnOrder,
+    addColumn,
+    fieldLookup,
+    hoveredRow,
+    selectedRows,
+    _activeCellIndex,
+    _onCellChange,
+    getCanonicalValue,
+    activeCell,
+    updateActiveCell,
+    handleCellNavigation,
+    _onActiveCellIndexChange,
+  ]);
+
 
   const table = useReactTable({
     data,
@@ -390,7 +594,7 @@ export default function BaseTable({
   }, [contextMenu, selectedRecordIds]);
 
   return (
-    <div className="flex flex-col h-full w-full overflow-hidden">
+    <div className="flex flex-col h-full w-full overflow-hidden" ref={tableWrapperRef}>
       {/* ACTUAL TABLE */}
       <div className="flex-1 overflow-auto bg-white border-t border-gray-300">
         <table className="table-auto border-separate border-spacing-0 text-sm">
@@ -485,7 +689,7 @@ export default function BaseTable({
                       key={cell.id}
                       className={`border-b border-r border-gray-200 align-middle ${widthClass(cell.column.id)}`}
                     >
-                      <div className="px-3 py-[6px] text-sm hover:bg-[#f5f6fa]">
+                  <div className="px-1 py-[2px] text-sm hover:bg-[#f5f6fa]">
                         {flexRender(
                           cell.column.columnDef.cell,
                           cell.getContext(),
