@@ -19,11 +19,28 @@ export const tableRouter = createTRPCRouter({
           id: input.id,
           base: { ownerId: ctx.session.user.id },
         },
-        include: {
-          fields: { orderBy: { order: "asc" } },
+        select: {
+          id: true,
+          name: true,
+          baseId: true,
+          fields: {
+            orderBy: { order: "asc" },
+            select: { id: true, name: true, type: true, order: true, isHidden: true },
+          },
           records: {
             orderBy: { createdAt: "asc" },
-            include: { cells: true },
+            select: {
+              id: true,
+              cells: {
+                select: {
+                  id: true,
+                  recordId: true,
+                  fieldId: true,
+                  valueText: true,
+                  valueNumber: true,
+                },
+              },
+            },
           },
         },
       });
@@ -62,50 +79,63 @@ export const tableRouter = createTRPCRouter({
           },
         });
 
-        await tx.field.createMany({
-          data: DEFAULT_FIELDS.map((f) => ({
-            ...f,
-            tableId: table.id,
-          })),
-        });
-        const fields = await tx.field.findMany({
-          where: { tableId: table.id },
-          orderBy: { order: "asc" },
-        });
-
-        const records = await Promise.all(
-          Array.from({ length: DEFAULT_RECORD_COUNT }).map(() =>
-            tx.record.create({
-              data: {
-                tableId: table.id,
-              },
-            }),
-          ),
-        );
-
-        await Promise.all(
-          records.map((record) =>
-            tx.cell.createMany({
-              data: fields.map((field) => ({
-                recordId: record.id,
-                fieldId: field.id,
-                valueText: null,
-                valueNumber: null,
-              })),
-            }),
-          ),
-        );
-
-        return tx.table.findUnique({
-          where: { id: table.id },
-          include: {
-            fields: { orderBy: { order: "asc" } },
-            records: {
-              orderBy: { createdAt: "asc" },
-              include: { cells: true },
+        const [fields, records] = await Promise.all([
+          tx.field.createManyAndReturn({
+            data: DEFAULT_FIELDS.map((f) => ({
+              ...f,
+              tableId: table.id,
+            })),
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              order: true,
+              isHidden: true,
             },
-          },
-        });
+          }),
+          tx.record.createManyAndReturn({
+            data: Array.from({ length: DEFAULT_RECORD_COUNT }).map(() => ({
+              tableId: table.id,
+            })),
+            select: { id: true, createdAt: true },
+          }),
+        ]);
+
+        const cells =
+          records.length && fields.length
+            ? await tx.cell.createManyAndReturn({
+                data: records.flatMap((record) =>
+                  fields.map((field) => ({
+                    recordId: record.id,
+                    fieldId: field.id,
+                    valueText: null,
+                    valueNumber: null,
+                  })),
+                ),
+                select: {
+                  id: true,
+                  recordId: true,
+                  fieldId: true,
+                  valueText: true,
+                  valueNumber: true,
+                },
+              })
+            : [];
+
+        const orderedFields = [...fields].sort((a, b) => a.order - b.order);
+        const orderedRecords = [...records].sort(
+          (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+        );
+        const recordsWithCells = orderedRecords.map(({ createdAt: _createdAt, ...record }) => ({
+          ...record,
+          cells: cells.filter((cell) => cell.recordId === record.id),
+        }));
+
+        return {
+          ...table,
+          fields: orderedFields,
+          records: recordsWithCells,
+        };
       });
 
       if (!fullTable) {
@@ -126,9 +156,12 @@ export const tableRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const table = await ctx.db.table.findFirst({
         where: { id: input.tableId, base: { ownerId: ctx.session.user.id } },
-        include: {
-          fields: true,
-          records: { select: { id: true } },
+        select: {
+          id: true,
+          fields: {
+            select: { id: true, order: true, name: true, type: true, isHidden: true },
+            orderBy: { order: "asc" },
+          },
         },
       });
       if (!table) {
@@ -138,37 +171,18 @@ export const tableRouter = createTRPCRouter({
       const order = table.fields.length;
       const fieldName = input.name?.trim() ?? `Field ${order + 1}`;
 
-      const { field, cells } = await ctx.db.$transaction(async (tx) => {
-        const newField = await tx.field.create({
-          data: {
-            name: fieldName,
-            type: input.type,
-            order,
-            tableId: table.id,
-          },
-        });
-
-        if (table.records.length) {
-          await tx.cell.createMany({
-            data: table.records.map((record) => ({
-              recordId: record.id,
-              fieldId: newField.id,
-              valueText: null,
-              valueNumber: null,
-            })),
-          });
-        }
-
-        const cells = await tx.cell.findMany({
-          where: { fieldId: newField.id },
-        });
-
-        return { field: newField, cells };
+      const field = await ctx.db.field.create({
+        data: {
+          name: fieldName,
+          type: input.type,
+          order,
+          tableId: table.id,
+        },
+        select: { id: true, name: true, type: true, order: true, isHidden: true },
       });
 
       return {
         field,
-        cells,
       };
     }),
 
@@ -177,34 +191,89 @@ export const tableRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const table = await ctx.db.table.findFirst({
         where: { id: input.tableId, base: { ownerId: ctx.session.user.id } },
-        include: { fields: { orderBy: { order: "asc" } } },
+        select: { id: true },
       });
       if (!table) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Table not found" });
       }
 
-      const result = await ctx.db.$transaction(async (tx) => {
-        const record = await tx.record.create({
-          data: {
-            tableId: table.id,
-            cells: {
-              create: table.fields.map((field) => ({
-                fieldId: field.id,
-                valueText: null,
-                valueNumber: null,
-              })),
-            },
-          },
-        });
-
-        const cells = await tx.cell.findMany({
-          where: { recordId: record.id },
-        });
-
-        return { record, cells };
+      const record = await ctx.db.record.create({
+        data: {
+          tableId: table.id,
+        },
+        select: { id: true },
       });
 
-      return result;
+      return { record: { id: record.id }, cells: [] };
+    }),
+
+  updateCell: protectedProcedure
+    .input(
+      z.object({
+        recordId: z.string(),
+        fieldId: z.string(),
+        value: z.union([z.string(), z.number(), z.null()]).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const record = await ctx.db.record.findFirst({
+        where: { id: input.recordId, table: { base: { ownerId: ctx.session.user.id } } },
+        select: { id: true, tableId: true },
+      });
+      if (!record) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Record not found" });
+      }
+
+      const field = await ctx.db.field.findFirst({
+        where: { id: input.fieldId, table: { base: { ownerId: ctx.session.user.id } } },
+        select: { id: true, tableId: true, type: true },
+      });
+      if (!field) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Field not found" });
+      }
+      if (field.tableId !== record.tableId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Field does not belong to the same table as record",
+        });
+      }
+
+      const asNumber = () => {
+        if (input.value === null || input.value === undefined || input.value === "") return null;
+        const num = typeof input.value === "number" ? input.value : Number(input.value);
+        if (Number.isNaN(num)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid number" });
+        }
+        return num;
+      };
+
+      const data =
+        field.type === FieldType.NUMBER
+          ? { valueNumber: asNumber(), valueText: null }
+          : {
+              valueText:
+                input.value === null || input.value === undefined
+                  ? null
+                  : String(input.value),
+              valueNumber: null,
+            };
+
+      const existing = await ctx.db.cell.findFirst({
+        where: { recordId: record.id, fieldId: field.id },
+        select: { id: true },
+      });
+
+      const cell = existing
+        ? await ctx.db.cell.update({ where: { id: existing.id }, data })
+        : await ctx.db.cell.create({
+            data: {
+              recordId: record.id,
+              fieldId: field.id,
+              ...data,
+            },
+          });
+
+      return cell;
     }),
 
   deleteField: protectedProcedure
@@ -273,7 +342,7 @@ export const tableRouter = createTRPCRouter({
           id: { in: input.recordIds },
           table: { base: { ownerId: ctx.session.user.id } },
         },
-        include: { table: true },
+        select: { id: true, tableId: true },
       });
 
       if (!records.length) {
@@ -289,4 +358,27 @@ export const tableRouter = createTRPCRouter({
 
       return { recordIds: input.recordIds, tableId };
     }),
+
+  rename: protectedProcedure
+    .input(
+      z.object({
+        tableId: z.string(), 
+        name:z.string()
+      }))
+    .mutation(async ({ ctx, input }) => {
+      const table = await ctx.db.table.findFirst({
+        where: {
+          id: input.tableId,
+          base: {ownerId: ctx.session.user.id}
+        }
+      });
+      if (!table) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Table not found" });
+      }
+      const updated = await ctx.db.table.update({
+        where: { id: input.tableId },
+        data: { name: input.name }
+      });
+      return updated;
+    })
 });

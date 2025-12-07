@@ -1,3 +1,5 @@
+ "use client";
+
 import {
   flexRender,
   getCoreRowModel,
@@ -46,7 +48,7 @@ const normalizeValueForField = (
   rawValue: string,
   field?: FieldShape,
 ): string | number | null | undefined => {
-  if (!field || field.type !== "NUMBER") {
+  if (field?.type !== "NUMBER") {
     return rawValue === "" ? null : rawValue;
   }
   if (rawValue === "") return null;
@@ -61,9 +63,41 @@ const valuesEqual = (a: string | number | null, b: string | number | null) => {
   return String(a) === String(b);
 };
 
+const fieldsEqual = (a: FieldShape[], b: FieldShape[]) =>
+  a.length === b.length &&
+  a.every((field, idx) => {
+    const other = b[idx];
+    return (
+      other &&
+      field.id === other.id &&
+      field.name === other.name &&
+      field.type === other.type &&
+      field.order === other.order
+    );
+  });
+
+const recordsEqual = (a: RecordShape[], b: RecordShape[]) =>
+  a.length === b.length &&
+  a.every((record, idx) => {
+    const other = b[idx];
+    if (!other || record.id !== other.id || record.cells.length !== other.cells.length) {
+      return false;
+    }
+    return record.cells.every((cell, cellIdx) => {
+      const otherCell = other.cells[cellIdx];
+      return (
+        otherCell &&
+        cell.fieldId === otherCell.fieldId &&
+        cell.valueText === otherCell.valueText &&
+        cell.valueNumber === otherCell.valueNumber
+      );
+    });
+  });
+
 interface BaseTableProps {
   fields: FieldShape[];
   records: RecordShape[];
+  hiddenFieldIds?: string[];
   isLoading?: boolean;
   onAddColumn?: () => void;
   onAddRow?: () => void;
@@ -79,12 +113,10 @@ const DEFAULT_FIELDS: FieldShape[] = [
   { id: "default-notes", name: "Notes", type: "TEXT", order: 1 },
 ];
 const DEFAULT_RECORD_COUNT = 5;
-const DEFAULT_RECORDS: RecordShape[] = Array.from({ length: DEFAULT_RECORD_COUNT }).map(
-  (_, i) => ({
-    id: `seed-${i}`,
-    cells: [],
-  }),
-);
+const DEFAULT_RECORDS: RecordShape[] = Array.from({ length: DEFAULT_RECORD_COUNT }).map((_, i) => ({
+  id: `seed-${i}`,
+  cells: [],
+}));
 
 function buildRows(fields: FieldShape[], records: RecordShape[]): RowData[] {
   const sortedFields = [...fields].sort((a, b) => a.order - b.order);
@@ -121,6 +153,7 @@ function createEmptyRecord(fields: FieldShape[]): RecordShape {
 export default function BaseTable({
   fields,
   records,
+  hiddenFieldIds = [],
   isLoading,
   onAddColumn,
   onAddRow,
@@ -149,6 +182,9 @@ export default function BaseTable({
   } | null>(null);
   const [activeCell, setActiveCell] = useState<{ rowIndex: number; colId: string } | null>(null);
   const tableWrapperRef = useRef<HTMLDivElement>(null);
+  const appliedFieldsRef = useRef<FieldShape[]>(DEFAULT_FIELDS);
+  const appliedRecordsRef = useRef<RecordShape[]>(DEFAULT_RECORDS);
+  const hiddenSet = useMemo(() => new Set(hiddenFieldIds), [hiddenFieldIds]);
 
   useEffect(() => {
     const close = () => setContextMenu(null);
@@ -157,12 +193,32 @@ export default function BaseTable({
   }, []);
 
   useEffect(() => {
+    console.log("BaseTable hydrated");
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (process.env.NODE_ENV !== "production") {
+        console.log("window keydown", {
+          key: e.key,
+          target: (e.target as HTMLElement | null)?.tagName,
+          active: document.activeElement?.tagName,
+          defaultPrevented: e.defaultPrevented,
+        });
+      }
+    };
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, []);
+
+  useEffect(() => {
     if (!_activeCellIndex) return;
     const [rowIndex, colIndex] = _activeCellIndex;
-    const colId = columnOrder[colIndex];
+    const visible = columnOrder.filter((id) => !hiddenSet.has(id));
+    const colId = visible[colIndex];
     if (colId === undefined) return;
     setActiveCell({ rowIndex, colId });
-  }, [_activeCellIndex, columnOrder]);
+  }, [_activeCellIndex, columnOrder, hiddenSet]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -176,10 +232,36 @@ export default function BaseTable({
   }, []);
 
   useEffect(() => {
-    const useFields = (fields ?? DEFAULT_FIELDS).sort(
-      (a, b) => a.order - b.order,
-    );
+    if (!activeCell) return;
+    const selector = `input[data-row-index="${activeCell.rowIndex}"][data-col-id="${activeCell.colId}"]`;
+    const next = document.querySelector<HTMLInputElement>(selector);
+    if (!next) return;
+    if (document.activeElement === next) return;
+    next.focus();
+    next.select();
+  }, [activeCell]);
+
+  useEffect(() => {
+    const useFields = (fields ?? DEFAULT_FIELDS).sort((a, b) => a.order - b.order);
     const useRecords = records ?? DEFAULT_RECORDS;
+
+    const sameFields = fieldsEqual(appliedFieldsRef.current, useFields);
+    const sameRecords = recordsEqual(appliedRecordsRef.current, useRecords);
+
+    if (sameFields && sameRecords) return;
+
+    if (process.env.NODE_ENV !== "production") {
+      console.log("syncing table props -> local state", {
+        fieldsChanged: !sameFields,
+        recordsChanged: !sameRecords,
+        fieldsCount: useFields.length,
+        recordsCount: useRecords.length,
+      });
+    }
+
+    appliedFieldsRef.current = useFields;
+    appliedRecordsRef.current = useRecords;
+
     setLocalFields(useFields);
     setLocalRecords(useRecords);
     setColumnOrder(useFields.map((f) => f.id));
@@ -277,25 +359,31 @@ export default function BaseTable({
     return lookup;
   }, [localRecords]);
 
+  const visibleColumnOrder = useMemo(
+    () => columnOrder.filter((id) => !hiddenSet.has(id)),
+    [columnOrder, hiddenSet],
+  );
+
   const getCanonicalValue = useCallback(
     (recordId: string, fieldId: string): string | number | null => {
       const field = fieldLookup[fieldId];
       const cell = recordCellLookup.get(`${recordId}:${fieldId}`);
       if (!field || !cell) return null;
       const value = readCellValue(field, cell);
-      return value == null ? null : value;
+      return value ?? null;
     },
     [fieldLookup, recordCellLookup],
   );
 
   const updateActiveCell = useCallback(
     (rowIndex: number, colIndex: number) => {
-      const colId = columnOrder[colIndex];
+      const colId = visibleColumnOrder[colIndex];
       if (colId === undefined) return;
+      if (activeCell?.rowIndex === rowIndex && activeCell?.colId === colId) return;
       setActiveCell({ rowIndex, colId });
       _onActiveCellIndexChange?.([rowIndex, colIndex]);
     },
-    [columnOrder, _onActiveCellIndexChange],
+    [visibleColumnOrder, _onActiveCellIndexChange, activeCell],
   );
 
   const handleCellNavigation = useCallback(
@@ -305,13 +393,13 @@ export default function BaseTable({
       colIndex: number,
       rowCount: number,
     ) => {
-      if (colIndex < 0 || columnOrder.length === 0) return;
+      if (colIndex < 0 || visibleColumnOrder.length === 0) return;
 
       const key = e.key;
       let targetRow = rowIndex;
       let targetCol = colIndex;
 
-      const lastCol = columnOrder.length - 1;
+      const lastCol = visibleColumnOrder.length - 1;
       const clampRow = (r: number) => Math.min(Math.max(r, 0), rowCount - 1);
 
       if (key === "ArrowRight" || (key === "Tab" && !e.shiftKey)) {
@@ -349,7 +437,7 @@ export default function BaseTable({
         next.select();
       }
     },
-    [columnOrder.length, updateActiveCell],
+    [visibleColumnOrder.length, updateActiveCell],
   );
 
   const columns = useMemo<ColumnDef<RowData, ColumnValue>[]>(() => {
@@ -362,7 +450,7 @@ export default function BaseTable({
         const cellValue = getValue();
         const [editValue, setEditValue] = useState<string>(cellValue == null ? "" : String(cellValue));
         const rowIndex = row.index;
-        const colIndex = columnOrder.indexOf(key);
+    const colIndex = visibleColumnOrder.indexOf(key);
         const recordId = row.original.__recordId;
         const field = fieldLookup[key];
         const canonicalValue = getCanonicalValue(recordId, key);
@@ -375,7 +463,42 @@ export default function BaseTable({
           setEditValue(cellValue == null ? "" : String(cellValue));
         }, [cellValue]);
 
-        const commitChange = useCallback(() => {
+        useEffect(() => {
+          const input = inputRef.current;
+          if (!input) return;
+          const handleNativeKeyDown = (evt: KeyboardEvent) => {
+            if (process.env.NODE_ENV !== "production") {
+              console.log("native keydown", {
+                key: evt.key,
+                rowIndex,
+                colIndex,
+                fieldId: String(key),
+                recordId,
+                defaultPrevented: evt.defaultPrevented,
+              });
+            }
+          };
+          const handleNativeInput = (evt: Event) => {
+            if (process.env.NODE_ENV !== "production") {
+              const target = evt.target as HTMLInputElement | null;
+              console.log("native input", {
+                value: target?.value,
+                rowIndex,
+                colIndex,
+                fieldId: String(key),
+                recordId,
+              });
+            }
+          };
+          input.addEventListener("keydown", handleNativeKeyDown, true);
+          input.addEventListener("input", handleNativeInput, true);
+          return () => {
+            input.removeEventListener("keydown", handleNativeKeyDown, true);
+            input.removeEventListener("input", handleNativeInput, true);
+          };
+        }, [colIndex, recordId, rowIndex]);
+
+        const commitChange = () => {
           if (!_onCellChange) return;
           const normalized = normalizeValueForField(editValue, field);
           if (normalized === undefined) {
@@ -390,11 +513,11 @@ export default function BaseTable({
             });
             return;
           }
-          if (valuesEqual(normalized ?? null, (canonicalValue ?? null) as string | number | null)) {
+          if (valuesEqual(normalized ?? null, canonicalValue ?? null)) {
             return;
           }
           _onCellChange(recordId, key, normalized);
-        }, [canonicalValue, editValue, field, key, recordId, rowIndex, _onCellChange]);
+        };
 
         return (
           <div
@@ -404,6 +527,14 @@ export default function BaseTable({
                 : "focus-within:border-[#1e73ff] focus-within:ring-1 focus-within:ring-[#1e73ff]"
             }`}
             onClick={() => {
+              if (process.env.NODE_ENV !== "production") {
+                console.log("cell container click", {
+                  rowIndex,
+                  colIndex,
+                  fieldId: String(key),
+                  recordId,
+                });
+              }
               updateActiveCell(rowIndex, colIndex);
               inputRef.current?.focus();
               inputRef.current?.select();
@@ -414,13 +545,28 @@ export default function BaseTable({
                 ref={inputRef}
                 type={isNumberField ? "number" : "text"}
                 className="w-full bg-transparent border-0 outline-none focus:outline-none focus:ring-0 px-[6px] py-[6px] text-sm leading-5 text-gray-900"
+                placeholder=" "
                 value={editValue}
                 data-row-index={rowIndex}
                 data-col-index={colIndex}
                 data-col-id={String(key)}
-                onFocus={() => updateActiveCell(rowIndex, colIndex)}
+                onFocus={() => {
+                  if (process.env.NODE_ENV !== "production") {
+                    console.log("cell focus", { rowIndex, colIndex, fieldId: String(key), recordId });
+                  }
+                  updateActiveCell(rowIndex, colIndex);
+                }}
                 onChange={(e) => {
                   const nextValue = e.target.value;
+                  if (process.env.NODE_ENV !== "production") {
+                    console.log("cell change", {
+                      rowIndex,
+                      colIndex,
+                      fieldId: String(key),
+                      recordId,
+                      nextValue,
+                    });
+                  }
                   setEditValue(nextValue);
                   setData((old) => {
                     const copy = [...old];
@@ -430,8 +576,29 @@ export default function BaseTable({
                     return copy;
                   });
                 }}
-                onBlur={commitChange}
+                onBlur={(e) => {
+                  if (process.env.NODE_ENV !== "production") {
+                    console.log("cell blur", {
+                      rowIndex,
+                      colIndex,
+                      fieldId: String(key),
+                      recordId,
+                      relatedTarget: (e.relatedTarget as HTMLElement | null)?.tagName,
+                    });
+                  }
+                  commitChange();
+                }}
                 onKeyDown={(e) => {
+                  if (process.env.NODE_ENV !== "production") {
+                    console.log("cell keydown", {
+                      key: e.key,
+                      rowIndex,
+                      colIndex,
+                      fieldId: String(key),
+                      recordId,
+                      defaultPrevented: e.defaultPrevented,
+                    });
+                  }
                   if (
                     e.key === "ArrowUp" ||
                     e.key === "ArrowDown" ||
@@ -461,7 +628,7 @@ export default function BaseTable({
     const columnLetter = (index: number) =>
       String.fromCharCode("A".charCodeAt(0) + index);
 
-    const cols: ColumnDef<RowData, ColumnValue>[] = columnOrder.map(
+    const cols: ColumnDef<RowData, ColumnValue>[] = visibleColumnOrder.map(
       (key, index) => {
         const field = fieldLookup[key];
         const headerName = field?.name ?? `Field ${index + 1}`;
@@ -554,7 +721,7 @@ export default function BaseTable({
 
     return [rowNumberCol, ...cols, addFieldCol];
   }, [
-    columnOrder,
+    visibleColumnOrder,
     addColumn,
     fieldLookup,
     hoveredRow,
@@ -566,6 +733,7 @@ export default function BaseTable({
     updateActiveCell,
     handleCellNavigation,
     _onActiveCellIndexChange,
+    data.length,
   ]);
 
 
@@ -680,7 +848,7 @@ export default function BaseTable({
               return (
                 <tr
                   key={row.id}
-                  className={`${rowHovered ? "bg-[#f1f3f7]" : "bg-white even:bg-[#fbfbfe]"} ${isSelected ? "bg-blue-50" : ""}`}
+                  className={`${rowHovered ? "bg-[#f1f3f7]" : "bg-white even:bg-[#fbfbfe]"} ${isSelected ? "border border-blue-50" : ""}`}
                   onMouseEnter={() => setHoveredRow(row.index)}
                   onMouseLeave={() => setHoveredRow(null)}
                 >

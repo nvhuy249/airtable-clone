@@ -226,98 +226,112 @@ export default function TableToolbar({
               </button>
             </div>
 
-            <div className="px-4 py-3 text-[13px] text-gray-700 space-y-3 overflow-hidden">
-              {conditions.length === 0 && (
+            <div className="px-4 py-3 text-[13px] text-gray-700 space-y-3 max-h-96 overflow-y-auto">
+              {conditions.length === 0 ? (
                 <div className="text-gray-500">No filter conditions are applied</div>
-              )}
+              ) : (
+                <div className="space-y-2">
+                  {conditions.map((condition, idx) => (
+                    <div key={condition.id} className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 min-w-[110px]">
+                        {idx === 0 ? (
+                          <>
+                            <span className="text-gray-600">Where</span>
+                          </>
+                        ) : (
+                          conditions.length > 1 && (
+                            <select
+                              value={connector}
+                              onChange={(e) => setConnector(e.target.value as "and" | "or")}
+                              className="rounded border border-gray-300 px-2 py-1 text-gray-800"
+                            >
+                              <option value="and">and</option>
+                              <option value="or">or</option>
+                            </select>
+                          )
+                        )}
+                      </div>
 
-              {conditions.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-600">Where</span>
-                  {conditions.length > 1 && (
-                    <select
-                      value={connector}
-                      onChange={(e) => setConnector(e.target.value as "and" | "or")}
-                      className="rounded border border-gray-300 px-2 py-1 text-gray-800"
-                    >
-                      <option value="and">and</option>
-                      <option value="or">or</option>
-                    </select>
-                  )}
+                      <div className="flex flex-1 items-center gap-1 rounded border border-gray-200 px-1 py-2 bg-white min-w-0">
+                        <select
+                          value={condition.fieldId}
+                          onChange={(e) =>
+                            setConditions((prev) =>
+                              prev.map((c) =>
+                                c.id === condition.id ? { ...c, fieldId: e.target.value } : c,
+                              ),
+                            )
+                          }
+                          className="min-w-[80px] rounded border border-gray-300 px-2 py-1 text-gray-800"
+                        >
+                          {orderedFields.map((field) => (
+                            <option key={field.id} value={field.id}>
+                              {field.name}
+                            </option>
+                          ))}
+                        </select>
+
+                        <select
+                          value={condition.operator}
+                          onChange={(e) => {
+                            const nextOperator = e.target.value as Operator;
+                            setConditions((prev) =>
+                              prev.map((c) =>
+                                c.id === condition.id
+                                  ? {
+                                      ...c,
+                                      operator: nextOperator,
+                                      value:
+                                        nextOperator === "is_empty" || nextOperator === "is_not_empty"
+                                          ? ""
+                                          : c.value,
+                                    }
+                                  : c,
+                              ),
+                            );
+                          }}
+                          className="min-w-[80px] rounded border border-gray-300 px-2 py-1 text-gray-800"
+                        >
+                          <option value="contains">contains...</option>
+                          <option value="not_contains">does not contain...</option>
+                          <option value="is">is...</option>
+                          <option value="is_not">is not...</option>
+                          <option value="is_empty">is empty</option>
+                          <option value="is_not_empty">is not empty</option>
+                        </select>
+
+                        <input
+                          type="text"
+                          value={condition.value ?? ""}
+                          onChange={(e) =>
+                            setConditions((prev) =>
+                              prev.map((c) =>
+                                c.id === condition.id ? { ...c, value: e.target.value } : c,
+                              ),
+                            )
+                          }
+                          placeholder="Enter a value"
+                          className="min-w-[80px] rounded border border-gray-300 px-2 py-1 text-gray-800"
+                          disabled={
+                            condition.operator === "is_empty" || condition.operator === "is_not_empty"
+                          }
+                        />
+
+                        <button
+                          type="button"
+                          className="p-1 rounded hover:bg-gray-100 text-gray-600"
+                          aria-label="Delete condition"
+                          onClick={() =>
+                            setConditions((prev) => prev.filter((c) => c.id !== condition.id))
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
-
-              <div className="flex flex-col gap-2 w-full">
-                {conditions.map((condition) => (
-                  <div
-                    key={condition.id}
-                    className="grid w-full grid-cols-[150px_180px_1fr_auto] items-center gap-2 rounded border border-gray-200 px-2 py-2 bg-white"
-                  >
-                    <select
-                      value={condition.fieldId}
-                      onChange={(e) =>
-                        setConditions((prev) =>
-                          prev.map((c) =>
-                            c.id === condition.id ? { ...c, fieldId: e.target.value } : c,
-                          ),
-                        )
-                      }
-                      className="min-w-[130px] rounded border border-gray-300 px-2 py-1 text-gray-800"
-                    >
-                      {orderedFields.map((field) => (
-                        <option key={field.id} value={field.id}>
-                          {field.name}
-                        </option>
-                      ))}
-                    </select>
-
-                    <select
-                      value={condition.operator}
-                      onChange={(e) =>
-                        setConditions((prev) =>
-                          prev.map((c) =>
-                            c.id === condition.id ? { ...c, operator: e.target.value as Operator } : c,
-                          ),
-                        )
-                      }
-                      className="min-w-[150px] rounded border border-gray-300 px-2 py-1 text-gray-800"
-                    >
-                      <option value="contains">contains…</option>
-                      <option value="not_contains">does not contain…</option>
-                      <option value="is">is…</option>
-                      <option value="is_not">is not…</option>
-                      <option value="is_empty">is empty</option>
-                      <option value="is_not_empty">is not empty</option>
-                    </select>
-
-                    <input
-                      type="text"
-                      value={condition.value}
-                      onChange={(e) =>
-                        setConditions((prev) =>
-                          prev.map((c) =>
-                            c.id === condition.id ? { ...c, value: e.target.value } : c,
-                          ),
-                        )
-                      }
-                      placeholder="Enter a value"
-                      className="flex-1 rounded border border-gray-300 px-2 py-1 text-gray-800"
-                      disabled={condition.operator === "is_empty" || condition.operator === "is_not_empty"}
-                    />
-
-                    <button
-                      type="button"
-                      className="p-1 rounded hover:bg-gray-100 text-gray-600"
-                      aria-label="Delete condition"
-                      onClick={() =>
-                        setConditions((prev) => prev.filter((c) => c.id !== condition.id))
-                      }
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
 
               <div className="flex items-center gap-4 pt-1 text-[13px] text-gray-700">
                 <button

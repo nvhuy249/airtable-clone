@@ -21,10 +21,18 @@ export const baseRouter = createTRPCRouter({
   byId: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      return ctx.db.base.findUnique({
-        where: { id: input.id },
-        include: {
-          tables: true, 
+      return ctx.db.base.findFirst({
+        where: { id: input.id, ownerId: ctx.session.user.id },
+        select: {
+          id: true,
+          name: true,
+          tables: {
+            orderBy: { createdAt: "asc" },
+            select: {
+              id: true,
+              name: true,
+            },
+          },
         },
       });
     }),
@@ -49,45 +57,39 @@ export const baseRouter = createTRPCRouter({
         });
 
         // seed default fields
-        await tx.field.createMany({
-          data: DEFAULT_FIELDS.map((f) => ({
-            ...f,
-            tableId: table.id,
-          })),
-        });
-        const fields = await tx.field.findMany({
-          where: { tableId: table.id },
-          orderBy: { order: "asc" },
-        });
+        const [fields, records] = await Promise.all([
+          tx.field.createManyAndReturn({
+            data: DEFAULT_FIELDS.map((f) => ({
+              ...f,
+              tableId: table.id,
+            })),
+            select: { id: true },
+          }),
+          tx.record.createManyAndReturn({
+            data: Array.from({ length: DEFAULT_RECORD_COUNT }).map(() => ({
+              tableId: table.id,
+            })),
+            select: { id: true },
+          }),
+        ]);
 
-        // seed default records + cells
-        const records = await Promise.all(
-          Array.from({ length: DEFAULT_RECORD_COUNT }).map(() =>
-            tx.record.create({
-              data: {
-                tableId: table.id,
-              },
-            }),
-          ),
-        );
-
-        await Promise.all(
-          records.map((record) =>
-            tx.cell.createMany({
-              data: fields.map((field) => ({
+        if (records.length && fields.length) {
+          await tx.cell.createMany({
+            data: records.flatMap((record) =>
+              fields.map((field) => ({
                 recordId: record.id,
                 fieldId: field.id,
                 valueText: null,
                 valueNumber: null,
               })),
-            }),
-          ),
-        );
+            ),
+          });
+        }
 
-        return tx.base.findUniqueOrThrow({
-          where: { id: base.id },
-          include: { tables: true },
-        });
+        return {
+          ...base,
+          tables: [table],
+        };
       });
     }),
 
