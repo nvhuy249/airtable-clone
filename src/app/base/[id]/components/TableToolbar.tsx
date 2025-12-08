@@ -478,7 +478,7 @@ export default function TableToolbar({
                 <div className="text-gray-500">No filter conditions are applied</div>
               ) : (
                 <div className="space-y-2">
-                  {localFilters.conditions.map((condition) => (
+                  {localFilters.conditions.map((condition, idx) => (
                     <div key={condition.id} className="flex items-center gap-1">
                       <div className="flex items-center gap-1 min-w-[110px]">
                         {idx === 0 ? (
