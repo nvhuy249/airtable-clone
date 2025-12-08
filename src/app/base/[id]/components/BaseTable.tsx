@@ -104,8 +104,8 @@ interface BaseTableProps {
   onDeleteColumn?: (fieldId: string) => void;
   onDeleteRecords?: (recordIds: string[]) => void;
   onCellChange?: (recordId: string, fieldId: string, value: string | number | null) => void;
-  activeCellIndex?: [number, number];
-  onActiveCellIndexChange?: (coords: [number, number]) => void;
+  activeCellIndex?: [number, number] | null;
+  onActiveCellIndexChange?: (coords: [number, number] | null) => void;
 }
 
 const DEFAULT_FIELDS: FieldShape[] = [
@@ -182,6 +182,10 @@ export default function BaseTable({
   } | null>(null);
   const [activeCell, setActiveCell] = useState<{ rowIndex: number; colId: string } | null>(null);
   const tableWrapperRef = useRef<HTMLDivElement>(null);
+  const skipRefocusRef = useRef(false);
+  const hoveredRowRef = useRef<number | null>(null);
+  const selectedRowsRef = useRef<Set<string>>(new Set());
+  const activeCellRef = useRef<typeof activeCell>(null);
   const appliedFieldsRef = useRef<FieldShape[]>(DEFAULT_FIELDS);
   const appliedRecordsRef = useRef<RecordShape[]>(DEFAULT_RECORDS);
   const hiddenSet = useMemo(() => new Set(hiddenFieldIds), [hiddenFieldIds]);
@@ -223,23 +227,21 @@ export default function BaseTable({
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (!tableWrapperRef.current) return;
-      if (!tableWrapperRef.current.contains(e.target as Node)) {
+      const target = e.target as HTMLElement | null;
+      const insideTable = target ? tableWrapperRef.current.contains(target) : false;
+      const insideCell = target
+        ? Boolean(target.closest('[data-cell-container="true"]'))
+        : false;
+
+      if (!insideTable || !insideCell) {
+        skipRefocusRef.current = true;
         setActiveCell(null);
+        _onActiveCellIndexChange?.(null);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
-
-  useEffect(() => {
-    if (!activeCell) return;
-    const selector = `input[data-row-index="${activeCell.rowIndex}"][data-col-id="${activeCell.colId}"]`;
-    const next = document.querySelector<HTMLInputElement>(selector);
-    if (!next) return;
-    if (document.activeElement === next) return;
-    next.focus();
-    next.select();
-  }, [activeCell]);
 
   useEffect(() => {
     const useFields = (fields ?? DEFAULT_FIELDS).sort((a, b) => a.order - b.order);
@@ -268,8 +270,16 @@ export default function BaseTable({
     setData(buildRows(useFields, useRecords));
     setSelectedRows(new Set());
     setContextMenu(null);
-    setActiveCell(null);
+    setActiveCell((prev) => {
+      if (!prev) return prev;
+      const columnStillExists = useFields.some((f) => f.id === prev.colId);
+      const rowStillExists = prev.rowIndex >= 0 && prev.rowIndex < useRecords.length;
+      return columnStillExists && rowStillExists ? prev : null;
+    });
   }, [fields, records]);
+  hoveredRowRef.current = hoveredRow;
+  selectedRowsRef.current = selectedRows;
+  activeCellRef.current = activeCell;
   const addRow = useCallback(() => {
     if (onAddRow) {
       onAddRow();
@@ -364,6 +374,41 @@ export default function BaseTable({
     [columnOrder, hiddenSet],
   );
 
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    console.log("activeCell changed", activeCell);
+  }, [activeCell]);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    const handler = (e: FocusEvent) => {
+      console.log(
+        `[focus ${e.type}]`,
+        { tag: (e.target as HTMLElement | null)?.tagName, id: (e.target as HTMLElement | null)?.id },
+        "activeElement:",
+        {
+          tag: (document.activeElement as HTMLElement | null)?.tagName,
+          id: (document.activeElement as HTMLElement | null)?.id,
+        },
+      );
+    };
+    window.addEventListener("focusin", handler, true);
+    window.addEventListener("focusout", handler, true);
+    return () => {
+      window.removeEventListener("focusin", handler, true);
+      window.removeEventListener("focusout", handler, true);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeCell) return;
+    const selector = `input[data-row-index="${activeCell.rowIndex}"][data-col-id="${activeCell.colId}"]`;
+    const next = document.querySelector<HTMLInputElement>(selector);
+    if (!next) return;
+    if (document.activeElement === next) return;
+    next.focus();
+  }, [activeCell, data, visibleColumnOrder]);
+
   const getCanonicalValue = useCallback(
     (recordId: string, fieldId: string): string | number | null => {
       const field = fieldLookup[fieldId];
@@ -450,14 +495,29 @@ export default function BaseTable({
         const cellValue = getValue();
         const [editValue, setEditValue] = useState<string>(cellValue == null ? "" : String(cellValue));
         const rowIndex = row.index;
-    const colIndex = visibleColumnOrder.indexOf(key);
+        const colIndex = visibleColumnOrder.indexOf(key);
         const recordId = row.original.__recordId;
         const field = fieldLookup[key];
         const canonicalValue = getCanonicalValue(recordId, key);
         const isNumberField = field?.type === "NUMBER";
+        const hasMountedRef = useRef(false);
         const isActive =
-          (activeCell?.rowIndex === rowIndex && activeCell?.colId === String(key)) ||
-          (_activeCellIndex?.[0] === rowIndex && _activeCellIndex?.[1] === colIndex);
+          activeCellRef.current?.rowIndex === rowIndex &&
+          activeCellRef.current?.colId === String(key);
+
+        useEffect(() => {
+          if (!isActive) return;
+          const input = inputRef.current;
+          if (!input) return;
+          if (document.activeElement === input) return;
+          input.focus();
+        }, [isActive, editValue]);
+
+        useEffect(() => {
+          if (process.env.NODE_ENV === "production") return;
+          console.log("editable cell mount", { key, rowIndex, colIndex, recordId });
+          return () => console.log("editable cell unmount", { key, rowIndex, colIndex, recordId });
+        }, [colIndex, key, recordId, rowIndex]);
 
         useEffect(() => {
           setEditValue(cellValue == null ? "" : String(cellValue));
@@ -498,9 +558,10 @@ export default function BaseTable({
           };
         }, [colIndex, recordId, rowIndex]);
 
-        const commitChange = () => {
+        const commitChange = (pendingValue?: string) => {
           if (!_onCellChange) return;
-          const normalized = normalizeValueForField(editValue, field);
+          const valueToCommit = pendingValue ?? editValue;
+          const normalized = normalizeValueForField(valueToCommit, field);
           if (normalized === undefined) {
             const resetValue = displayValue(canonicalValue);
             setEditValue(resetValue);
@@ -519,13 +580,30 @@ export default function BaseTable({
           _onCellChange(recordId, key, normalized);
         };
 
-        return (
+        useEffect(() => {
+          if (!isActive) return;
+          if (!hasMountedRef.current) {
+            hasMountedRef.current = true;
+            return;
+          }
+          const timer = window.setTimeout(() => {
+            if (!_onCellChange) return;
+            const normalized = normalizeValueForField(editValue, field);
+            if (normalized === undefined) return;
+            if (valuesEqual(normalized ?? null, canonicalValue ?? null)) return;
+            _onCellChange(recordId, key, normalized);
+          }, 700);
+          return () => window.clearTimeout(timer);
+        }, [editValue, isActive, _onCellChange, field, canonicalValue, recordId, key]);
+
+          return (
           <div
-            className={`flex h-full min-h-[36px] items-stretch rounded-[3px] border border-transparent transition-colors ${
+            className={`flex h-full min-h-[36px] items-stretch border border-transparent transition-colors ${
               isActive
-                ? "border-[#1e73ff] ring-1 ring-[#1e73ff]"
+                ? "border-[#1e73ff] ring-2 ring-[#1e73ff]"
                 : "focus-within:border-[#1e73ff] focus-within:ring-1 focus-within:ring-[#1e73ff]"
             }`}
+            data-cell-container="true"
             onClick={() => {
               if (process.env.NODE_ENV !== "production") {
                 console.log("cell container click", {
@@ -536,6 +614,9 @@ export default function BaseTable({
                 });
               }
               updateActiveCell(rowIndex, colIndex);
+              inputRef.current?.focus();
+            }}
+            onDoubleClick={() => {
               inputRef.current?.focus();
               inputRef.current?.select();
             }}
@@ -552,7 +633,17 @@ export default function BaseTable({
                 data-col-id={String(key)}
                 onFocus={() => {
                   if (process.env.NODE_ENV !== "production") {
-                    console.log("cell focus", { rowIndex, colIndex, fieldId: String(key), recordId });
+                    console.log("cell focus", {
+                      rowIndex,
+                      colIndex,
+                      fieldId: String(key),
+                      recordId,
+                      selection: {
+                        start: inputRef.current?.selectionStart,
+                        end: inputRef.current?.selectionEnd,
+                      },
+                      activeElement: document.activeElement?.tagName,
+                    });
                   }
                   updateActiveCell(rowIndex, colIndex);
                 }}
@@ -584,9 +675,30 @@ export default function BaseTable({
                       fieldId: String(key),
                       recordId,
                       relatedTarget: (e.relatedTarget as HTMLElement | null)?.tagName,
+                      activeElement: document.activeElement?.tagName,
                     });
                   }
                   commitChange();
+                  const clickedOutside = skipRefocusRef.current;
+                  skipRefocusRef.current = false;
+                  const related = e.relatedTarget as HTMLElement | null;
+                  const isOutsideTable =
+                    related && tableWrapperRef.current
+                      ? !tableWrapperRef.current.contains(related)
+                      : false;
+                  if (isOutsideTable || clickedOutside) {
+                    setActiveCell(null);
+                    _onActiveCellIndexChange?.(null);
+                    return;
+                  }
+                  if (isActive) {
+                    requestAnimationFrame(() => {
+                      if (document.activeElement !== inputRef.current) {
+                        inputRef.current?.focus();
+                        inputRef.current?.select();
+                      }
+                    });
+                  }
                 }}
                 onKeyDown={(e) => {
                   if (process.env.NODE_ENV !== "production") {
@@ -606,11 +718,13 @@ export default function BaseTable({
                     e.key === "ArrowRight" ||
                     e.key === "Tab"
                   ) {
+                    skipRefocusRef.current = true;
                     handleCellNavigation(e, rowIndex, colIndex, data.length);
                     return;
                   }
                   if (e.key === "Enter") {
                     e.preventDefault();
+                    skipRefocusRef.current = true;
                     e.currentTarget.blur();
                   }
                 }}
@@ -664,8 +778,8 @@ export default function BaseTable({
       header: "",
       cell: ({ row }) => {
         const recordId = row.original.__recordId;
-        const isSelected = selectedRows.has(recordId);
-        const showCheckbox = hoveredRow === row.index || isSelected;
+        const isSelected = selectedRowsRef.current.has(recordId);
+        const showCheckbox = hoveredRowRef.current === row.index || isSelected;
         return (
           <div className="flex items-center justify-center text-xs text-gray-500">
             {showCheckbox ? (
@@ -724,12 +838,8 @@ export default function BaseTable({
     visibleColumnOrder,
     addColumn,
     fieldLookup,
-    hoveredRow,
-    selectedRows,
-    _activeCellIndex,
     _onCellChange,
     getCanonicalValue,
-    activeCell,
     updateActiveCell,
     handleCellNavigation,
     _onActiveCellIndexChange,

@@ -51,6 +51,7 @@ export default function BaseClient({
   tables,
   user,
 }: BaseClientProps) {
+  type AddRecordContext = { previous?: TableById; tableId: string; optimisticId?: string };
   const userInitial =
     user?.name?.charAt(0)?.toUpperCase() ??
     user?.email?.charAt(0)?.toUpperCase() ??
@@ -73,6 +74,9 @@ export default function BaseClient({
   );
   const [hiddenFieldIds, setHiddenFieldIds] = useState<string[]>([]);
   const cancelledOptimisticFieldIds = useRef<Set<string>>(new Set());
+  const pendingRecordEdits = useRef<
+    Map<string, { fieldId: string; value: string | number | null }[]>
+  >(new Map());
 
   useEffect(() => {
     setHiddenFieldIds([]);
@@ -210,33 +214,61 @@ export default function BaseClient({
     onMutate: async ({ tableId }) => {
       await utils.table.byId.cancel({ id: tableId });
       const previous = utils.table.byId.getData({ id: tableId });
-      if (!previous) return { previous, tableId };
+      if (!previous) return { previous, tableId } satisfies AddRecordContext;
 
       const optimisticRecord = makeEmptyRecord(previous.fields);
 
       utils.table.byId.setData({ id: tableId }, { ...previous, records: [...previous.records, optimisticRecord] });
 
-      return { previous, tableId, optimisticId: optimisticRecord.id };
+      return { previous, tableId, optimisticId: optimisticRecord.id } satisfies AddRecordContext;
     },
     onError: (_err, _variables, context) => {
       if (!context?.previous || !context.tableId) return;
       utils.table.byId.setData({ id: context.tableId }, context.previous);
+      if (context.optimisticId) {
+        pendingRecordEdits.current.delete(context.optimisticId);
+      }
     },
     onSuccess: ({ record }, _variables, context) => {
       if (!context?.tableId) return;
       utils.table.byId.setData({ id: context.tableId }, (prev: TableById | undefined) => {
         if (!prev) return prev;
+        const optimisticId = context.optimisticId;
+        const hadOptimistic = Boolean(
+          optimisticId && prev.records.some((r) => r.id === optimisticId),
+        );
+
+        const recordsWithRealId = hadOptimistic
+          ? prev.records.map((r) =>
+              r.id === optimisticId
+                ? {
+                    ...r,
+                    id: record.id,
+                    cells: r.cells.map((cell) => ({ ...cell, recordId: record.id })),
+                  }
+                : r,
+            )
+          : prev.records;
+
+        const hasReal = recordsWithRealId.some((r) => r.id === record.id);
         const fallbackRecord: TableRecord = {
           id: record.id,
           cells: prev.fields.map((field) => makeEmptyCell(record.id, field.id)),
         };
-        const records = prev.records.map((r) =>
-          r.id === context.optimisticId ? { ...fallbackRecord } : r,
-        );
-        const hasReal = records.some((r) => r.id === record.id);
-        const nextRecords = hasReal ? records : [...records, fallbackRecord];
+        const nextRecords = hasReal ? recordsWithRealId : [...recordsWithRealId, fallbackRecord];
+
         return { ...prev, records: nextRecords };
       });
+
+       if (context.optimisticId) {
+         const queued = pendingRecordEdits.current.get(context.optimisticId);
+         if (queued?.length) {
+           pendingRecordEdits.current.delete(context.optimisticId);
+           queued.forEach(({ fieldId, value }) => {
+             updateCell.mutate({ recordId: record.id, fieldId, value });
+           });
+         }
+       }
     },
   });
 
@@ -340,6 +372,8 @@ export default function BaseClient({
   const handleCellChange = (recordId: string, fieldId: string, value: string | number | null) => {
     if (!activeTableId) return;
 
+    const isOptimisticRecord = recordId.startsWith("temp-record");
+
     utils.table.byId.setData({ id: activeTableId }, (prev) => {
       if (!prev) return prev;
       return {
@@ -363,12 +397,18 @@ export default function BaseClient({
       };
     });
 
+    if (isOptimisticRecord) {
+      const existingEdits = pendingRecordEdits.current.get(recordId) ?? [];
+      pendingRecordEdits.current.set(recordId, [...existingEdits, { fieldId, value }]);
+      return;
+    }
+
     updateCell.mutate(
       { recordId, fieldId, value },
     );
   };
 
-  const [activeCellIndex, setActiveCellIndex] = useState<[number, number]>([0,0]);
+  const [activeCellIndex, setActiveCellIndex] = useState<[number, number] | null>([0,0]);
 
   return (
     <div className="flex h-screen bg-[#f7f7fb]">
