@@ -1,3 +1,4 @@
+import { faker } from "@faker-js/faker";
 import { FieldType } from "../../../../generated/prisma";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
 import { z } from "zod";
@@ -5,6 +6,7 @@ import { z } from "zod";
 const DEFAULT_FIELDS = [
   { name: "Name", type: FieldType.TEXT, order: 0 },
   { name: "Notes", type: FieldType.TEXT, order: 1 },
+  { name: "Numbers", type: FieldType.NUMBER, order: 2 },
 ];
 const DEFAULT_RECORD_COUNT = 5;
 
@@ -56,14 +58,14 @@ export const baseRouter = createTRPCRouter({
           },
         });
 
-        // seed default fields
+        // seed default fields and faker data
         const [fields, records] = await Promise.all([
           tx.field.createManyAndReturn({
             data: DEFAULT_FIELDS.map((f) => ({
               ...f,
               tableId: table.id,
             })),
-            select: { id: true },
+            select: { id: true, name: true, type: true },
           }),
           tx.record.createManyAndReturn({
             data: Array.from({ length: DEFAULT_RECORD_COUNT }).map(() => ({
@@ -79,8 +81,14 @@ export const baseRouter = createTRPCRouter({
               fields.map((field) => ({
                 recordId: record.id,
                 fieldId: field.id,
-                valueText: null,
-                valueNumber: null,
+                valueText:
+                  field.type === FieldType.NUMBER
+                    ? null
+                    : field.name.toLowerCase().includes("name")
+                      ? faker.person.fullName()
+                      : faker.lorem.sentence(4),
+                valueNumber:
+                  field.type === FieldType.NUMBER ? faker.number.int({ min: 1, max: 1000 }) : null,
               })),
             ),
           });

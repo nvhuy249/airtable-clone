@@ -48,16 +48,16 @@ export default function TableTopBar({
 }: TableTopBarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const addMenuRef = useRef<HTMLDivElement | null>(null);
+  const menuWrapperRef = useRef<HTMLDivElement | null>(null);
+  const addMenuWrapperRef = useRef<HTMLDivElement | null>(null);
   const activeTable = useMemo(() => tables.find((t) => t.id === activeTableId), [tables, activeTableId]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (menuRef.current?.contains(e.target as Node) === false) {
+      if (menuWrapperRef.current?.contains(e.target as Node) === false) {
         setMenuOpen(false);
       }
-      if (addMenuRef.current?.contains(e.target as Node) === false) {
+      if (addMenuWrapperRef.current?.contains(e.target as Node) === false) {
         setAddMenuOpen(false);
       }
     };
@@ -69,7 +69,7 @@ export default function TableTopBar({
     <div className="flex items-center justify-between h-10 px-4 border-b border-gray-200 bg-[#f7f7fa] text-sm relative">
       {/* table tabs + add/import */}
       <div className="flex items-center gap-2 text-sm">
-        <div className="flex items-center gap-1">
+        <div ref={menuWrapperRef} className="relative flex items-center gap-1">
           {tables.map((t) => {
             const isActive = t.id === activeTableId;
             return (
@@ -95,12 +95,46 @@ export default function TableTopBar({
               </button>
             );
           })}
+
+          {menuOpen && (
+            <div
+              className="absolute left-0 top-8 z-40 w-72 rounded-lg border border-gray-200 bg-white shadow-xl text-sm text-gray-800"
+            >
+              <div className="py-2">
+                {menuItems.map(({ label, icon: Icon, danger }) => (
+                  <button
+                    key={label}
+                    onClick={() => {
+                      if (label === "Rename table") {
+                        const nextName = window.prompt(
+                          "Rename table",
+                          activeTable?.name ?? "",
+                        );
+                        const trimmed = nextName?.trim();
+                        if (trimmed && activeTable?.id) {
+                          onRenameTable(activeTable.id, trimmed);
+                        }
+                        setMenuOpen(false);
+                        return;
+                      }
+                      if (danger && activeTable?.id) {
+                        onDeleteTable(activeTable.id);
+                        setMenuOpen(false);
+                        return;
+                      }
+                      setMenuOpen(false);
+                    }}
+                    className={`w-full px-4 py-2 flex items-center gap-3 hover:bg-gray-50`}>
+                    <Icon className="h-4 w-4" />
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
         <div className="h-5 w-px bg-gray-200" />
-        <div className="flex items-center gap-1">
-          <button className="px-3 py-1 text-xs rounded-full border border-gray-300 hover:bg-gray-50">
-            + Add or import
-          </button>
+        <div ref={addMenuWrapperRef} className="relative flex items-center gap-1">
           <button
             onClick={() => setAddMenuOpen((p) => !p)}
             className="flex items-center gap-1 px-2 py-1 text-xs rounded-sm border border-transparent hover:border-gray-300"
@@ -108,64 +142,29 @@ export default function TableTopBar({
           >
             <ChevronDown className="h-4 w-4 text-gray-600" />
           </button>
+          <button className="px-3 py-1 text-xs rounded-full border border-gray-300 hover:bg-gray-50">
+            + Add or import
+          </button>
+
+          {addMenuOpen && (
+            <div
+              className="absolute left-0 top-8 z-40 w-56 rounded-lg border border-gray-200 bg-white shadow-xl text-sm text-gray-800"
+            >
+              <button
+                onClick={() => {
+                  onAddTable();
+                  setAddMenuOpen(false);
+                }}
+                className="w-full px-4 py-2 flex items-center gap-3 hover:bg-gray-50"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Add table</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
-      {menuOpen && (
-        <div
-          ref={menuRef}
-          className="absolute left-4 top-10 z-40 w-72 rounded-lg border border-gray-200 bg-white shadow-xl text-sm text-gray-800"
-        >
-          <div className="py-2">
-            {menuItems.map(({ label, icon: Icon, danger }) => (
-              <button
-                key={label}
-                onClick={() => {
-                  if (label === "Rename table") {
-                    const nextName = window.prompt(
-                      "Rename table",
-                      activeTable?.name ?? "",
-                    );
-                    const trimmed = nextName?.trim();
-                    if (trimmed && activeTable?.id) {
-                      onRenameTable(activeTable.id, trimmed);
-                    }
-                    setMenuOpen(false);
-                    return;
-                  }
-                  if (danger && activeTable?.id) {
-                    onDeleteTable(activeTable.id);
-                    setMenuOpen(false);
-                    return;
-                  }
-                  setMenuOpen(false);
-                }}
-                className={`w-full px-4 py-2 flex items-center gap-3 hover:bg-gray-50`}>
-                <Icon className="h-4 w-4" />
-                <span>{label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {addMenuOpen && (
-        <div
-          ref={addMenuRef}
-          className="absolute left-48 top-10 z-40 w-56 rounded-lg border border-gray-200 bg-white shadow-xl text-sm text-gray-800"
-        >
-          <button
-            onClick={() => {
-              onAddTable();
-              setAddMenuOpen(false);
-            }}
-            className="w-full px-4 py-2 flex items-center gap-3 hover:bg-gray-50"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Add table</span>
-          </button>
-        </div>
-      )}
     </div>
   );
 }

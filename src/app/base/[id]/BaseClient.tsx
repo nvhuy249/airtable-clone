@@ -7,6 +7,7 @@ import TableTopBar from "./components/TableTopBar";
 import TableToolbar from "./components/TableToolbar";
 import ViewSidebar from "./components/ViewSidebar";
 import BaseTable from "./components/BaseTable";
+import type { Condition as FilterCondition, SortItem, SortState } from "./components/TableToolbar";
 import { api } from "~/trpc/react";
 import type { RouterOutputs } from "~/trpc/react";
 
@@ -77,6 +78,12 @@ export default function BaseClient({
   const pendingRecordEdits = useRef<
     Map<string, { fieldId: string; value: string | number | null }[]>
   >(new Map());
+  const [filters, setFilters] = useState<{ connector: "and" | "or"; conditions: FilterCondition[] }>({
+    connector: "and",
+    conditions: [],
+  });
+  const [sortUi, setSortUi] = useState<SortState>({ items: [], auto: true });
+  const [appliedSorts, setAppliedSorts] = useState<SortItem[]>([]);
 
   useEffect(() => {
     setHiddenFieldIds([]);
@@ -158,7 +165,7 @@ export default function BaseClient({
       const optimisticField: TableField = {
         id: optimisticFieldId,
         name: variables.name?.trim() ?? `Field ${order + 1}`,
-        type: (variables.type ?? "TEXT") as TableField["type"],
+        type: variables.type ?? "TEXT",
         order,
         isHidden: false,
       };
@@ -207,6 +214,29 @@ export default function BaseClient({
         });
         return { ...prev, fields, records };
       });
+    },
+  });
+
+  const renameField = api.table.renameField.useMutation({
+    onMutate: async ({ fieldId, name }) => {
+      if (!activeTableId) return { previous: undefined, tableId: undefined };
+      await utils.table.byId.cancel({ id: activeTableId });
+      const previous = utils.table.byId.getData({ id: activeTableId });
+      if (!previous) return { previous, tableId: activeTableId };
+      const fields = previous.fields.map((f) => (f.id === fieldId ? { ...f, name } : f));
+      utils.table.byId.setData({ id: activeTableId }, { ...previous, fields });
+      return { previous, tableId: activeTableId };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (!ctx?.previous || !ctx.tableId) return;
+      utils.table.byId.setData({ id: ctx.tableId }, ctx.previous);
+    },
+    onSuccess: ({ field, tableId }) => {
+      utils.table.byId.setData({ id: tableId }, (prev) =>
+        prev
+          ? { ...prev, fields: prev.fields.map((f) => (f.id === field.id ? field : f)) }
+          : prev,
+      );
     },
   });
 
@@ -337,6 +367,120 @@ export default function BaseClient({
   const handleAddTable = () => {
     const nextIndex = tablesState.length + 1;
     createTable.mutate({ baseId, name: `Table ${nextIndex}` });
+  };
+
+  const applyFilters = (records: TableRecord[], fields: TableField[]) => {
+    if (!filters.conditions.length) return records;
+
+    const fieldLookup = fields.reduce<Record<string, TableField>>(
+      (acc, f) => ({ ...acc, [f.id]: f }),
+      {},
+    );
+
+    const checkCondition = (record: TableRecord, condition: FilterCondition) => {
+      const field = fieldLookup[condition.fieldId];
+      if (!field) return false;
+      const cell = record.cells.find((c) => c.fieldId === condition.fieldId);
+      const isNumber = field.type === "NUMBER";
+      if (isNumber) {
+        const numVal = (() => {
+          if (typeof cell?.valueNumber === "number") return cell.valueNumber;
+          const parsed = Number(cell?.valueText ?? "");
+          return Number.isNaN(parsed) ? null : parsed;
+        })();
+        const target = Number(condition.value ?? "");
+        const hasNumber = numVal !== null && !Number.isNaN(numVal);
+
+        switch (condition.operator) {
+          case "greater_than":
+            return hasNumber && !Number.isNaN(target) && numVal > target;
+          case "less_than":
+            return hasNumber && !Number.isNaN(target) && numVal < target;
+          case "greater_than_or_equal":
+            return hasNumber && !Number.isNaN(target) && numVal >= target;
+          case "less_than_or_equal":
+            return hasNumber && !Number.isNaN(target) && numVal <= target;
+          case "is":
+            return hasNumber && !Number.isNaN(target) && numVal === target;
+          case "is_not":
+            return hasNumber && !Number.isNaN(target) && numVal !== target;
+          case "is_empty":
+            return !hasNumber;
+          case "is_not_empty":
+            return hasNumber;
+          default:
+            return true;
+        }
+      }
+
+      const rawValue = cell?.valueText ?? cell?.valueNumber ?? null;
+      const value = rawValue == null ? "" : String(rawValue).toLowerCase();
+      const needle = (condition.value ?? "").toLowerCase();
+
+      switch (condition.operator) {
+        case "contains":
+          return value.includes(needle);
+        case "not_contains":
+          return !value.includes(needle);
+        case "is":
+          return value === needle;
+        case "is_not":
+          return value !== needle;
+        case "is_empty":
+          return value === "";
+        case "is_not_empty":
+          return value !== "";
+        default:
+          return true;
+      }
+    };
+
+    return records.filter((record) => {
+      const results = filters.conditions.map((cond) => checkCondition(record, cond));
+      return filters.connector === "and"
+        ? results.every(Boolean)
+        : results.some(Boolean);
+    });
+  };
+
+  const applySorts = (records: TableRecord[], fields: TableField[]) => {
+    if (!appliedSorts.length) return records;
+    const fieldLookup = fields.reduce<Record<string, TableField>>(
+      (acc, f) => ({ ...acc, [f.id]: f }),
+      {},
+    );
+    const sorted = [...records];
+    sorted.sort((a, b) => {
+      for (const sort of appliedSorts) {
+        const field = fieldLookup[sort.fieldId];
+        if (!field) continue;
+        const cellA = a.cells.find((c) => c.fieldId === sort.fieldId);
+        const cellB = b.cells.find((c) => c.fieldId === sort.fieldId);
+        const isNumber = field.type === "NUMBER";
+        const valA = isNumber
+          ? cellA?.valueNumber ?? Number(cellA?.valueText ?? NaN)
+          : (cellA?.valueText ?? cellA?.valueNumber ?? "") ?? "";
+        const valB = isNumber
+          ? cellB?.valueNumber ?? Number(cellB?.valueText ?? NaN)
+          : (cellB?.valueText ?? cellB?.valueNumber ?? "") ?? "";
+
+        let comp = 0;
+        if (isNumber) {
+          const aNum = typeof valA === "number" && !Number.isNaN(valA) ? valA : Number.NEGATIVE_INFINITY;
+          const bNum = typeof valB === "number" && !Number.isNaN(valB) ? valB : Number.NEGATIVE_INFINITY;
+          comp = aNum === bNum ? 0 : aNum < bNum ? -1 : 1;
+        } else {
+          const aStr = (valA ?? "").toString().toLowerCase();
+          const bStr = (valB ?? "").toString().toLowerCase();
+          comp = aStr.localeCompare(bStr);
+        }
+        if (comp !== 0) {
+          return sort.direction === "asc" ? comp : -comp;
+        }
+      }
+      return 0;
+    });
+    return sorted;
   };
 
   const handleDeleteTable = (id: string) => {
@@ -470,6 +614,8 @@ export default function BaseClient({
         <TableToolbar
           fields={tableQuery.data?.fields ?? []}
           hiddenFieldIds={hiddenFieldIds}
+          filters={filters}
+          sorts={{ items: sortUi.items, auto: sortUi.auto }}
           onToggleField={(fieldId) =>
             setHiddenFieldIds((prev) =>
               prev.includes(fieldId) ? prev.filter((id) => id !== fieldId) : [...prev, fieldId],
@@ -480,6 +626,13 @@ export default function BaseClient({
             setHiddenFieldIds(ids);
           }}
           onShowAll={() => setHiddenFieldIds([])}
+          onFiltersChange={setFilters}
+          onSortsChange={(next, commit) => {
+            setSortUi(next);
+            if (commit || next.auto) {
+              setAppliedSorts(next.items);
+            }
+          }}
         />
 
         {/* BODY: view sidebar + table */}
@@ -491,13 +644,20 @@ export default function BaseClient({
           <div className="flex flex-1 flex-col overflow-hidden">
             <BaseTable
               fields={tableQuery.data?.fields ?? []}
-              records={tableQuery.data?.records ?? []}
+              records={applySorts(
+                applyFilters(tableQuery.data?.records ?? [], tableQuery.data?.fields ?? []),
+                tableQuery.data?.fields ?? [],
+              )}
               hiddenFieldIds={hiddenFieldIds}
               isLoading={tableQuery.isLoading}
               onCellChange={handleCellChange}
-              onAddColumn={() => {
+              onAddColumn={(type = "TEXT", name) => {
                 if (!activeTableId || addField.isPending) return;
-                addField.mutate({ tableId: activeTableId });
+                addField.mutate({
+                  tableId: activeTableId,
+              type,
+                  name,
+                });
               }}
               onAddRow={() => {
                 if (!activeTableId || addRecord.isPending) return;
@@ -524,6 +684,10 @@ export default function BaseClient({
                 if (!recordIds.length || deleteRecords.isPending || !activeTableId)
                   return;
                 deleteRecords.mutate({ recordIds });
+              }}
+              onRenameColumn={(fieldId, name) => {
+                if (!activeTableId || renameField.isPending) return;
+                renameField.mutate({ fieldId, name });
               }}
               activeCellIndex={activeCellIndex}
               onActiveCellIndexChange={setActiveCellIndex}

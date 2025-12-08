@@ -99,7 +99,8 @@ interface BaseTableProps {
   records: RecordShape[];
   hiddenFieldIds?: string[];
   isLoading?: boolean;
-  onAddColumn?: () => void;
+  onAddColumn?: (type?: FieldType, name?: string) => void;
+  onRenameColumn?: (fieldId: string, name: string) => void;
   onAddRow?: () => void;
   onDeleteColumn?: (fieldId: string) => void;
   onDeleteRecords?: (recordIds: string[]) => void;
@@ -156,6 +157,7 @@ export default function BaseTable({
   hiddenFieldIds = [],
   isLoading,
   onAddColumn,
+  onRenameColumn,
   onAddRow,
   onDeleteColumn,
   onDeleteRecords,
@@ -181,11 +183,23 @@ export default function BaseTable({
     recordId: string;
   } | null>(null);
   const [activeCell, setActiveCell] = useState<{ rowIndex: number; colId: string } | null>(null);
+  const [addFieldMenuOpen, setAddFieldMenuOpen] = useState(false);
+  const [pendingFieldType, setPendingFieldType] = useState<FieldType | null>(null);
+  const [pendingFieldName, setPendingFieldName] = useState("");
+  const [addFieldAnchor, setAddFieldAnchor] = useState<{ top: number; left: number } | null>(
+    null,
+  );
+  const [renamingFieldId, setRenamingFieldId] = useState<string | null>(null);
+  const [renamingValue, setRenamingValue] = useState("");
+  const [renameAnchor, setRenameAnchor] = useState<{ top: number; left: number; width: number } | null>(null);
   const tableWrapperRef = useRef<HTMLDivElement>(null);
   const skipRefocusRef = useRef(false);
   const hoveredRowRef = useRef<number | null>(null);
   const selectedRowsRef = useRef<Set<string>>(new Set());
   const activeCellRef = useRef<typeof activeCell>(null);
+  const addFieldButtonRef = useRef<HTMLButtonElement | null>(null);
+  const addFieldNameInputRef = useRef<HTMLInputElement | null>(null);
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
   const appliedFieldsRef = useRef<FieldShape[]>(DEFAULT_FIELDS);
   const appliedRecordsRef = useRef<RecordShape[]>(DEFAULT_RECORDS);
   const hiddenSet = useMemo(() => new Set(hiddenFieldIds), [hiddenFieldIds]);
@@ -195,6 +209,25 @@ export default function BaseTable({
     window.addEventListener("click", close);
     return () => window.removeEventListener("click", close);
   }, []);
+
+  useEffect(() => {
+    if (pendingFieldType && addFieldNameInputRef.current) {
+      addFieldNameInputRef.current.focus();
+      addFieldNameInputRef.current.setSelectionRange(
+        addFieldNameInputRef.current.value.length,
+        addFieldNameInputRef.current.value.length,
+      );
+    }
+  }, [pendingFieldType]);
+
+  useEffect(() => {
+    if (!renamingFieldId || !renameInputRef.current) return;
+    renameInputRef.current.focus();
+    renameInputRef.current.setSelectionRange(
+      renameInputRef.current.value.length,
+      renameInputRef.current.value.length,
+    );
+  }, [renamingFieldId]);
 
   useEffect(() => {
     console.log("BaseTable hydrated");
@@ -226,22 +259,50 @@ export default function BaseTable({
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (!tableWrapperRef.current) return;
       const target = e.target as HTMLElement | null;
-      const insideTable = target ? tableWrapperRef.current.contains(target) : false;
-      const insideCell = target
-        ? Boolean(target.closest('[data-cell-container="true"]'))
-        : false;
+      const insideAddMenus = !!(
+        target &&
+        (target.closest('[data-add-field-menu="true"]') ??
+          target.closest('[data-add-field-name="true"]') ??
+          addFieldButtonRef.current?.contains(target))
+      );
+      const insideRename = !!(
+        target &&
+        (target.closest('[data-rename-field="true"]') ??
+          target.closest('[data-rename-trigger="true"]'))
+      );
+
+      const insideTable =
+        target && tableWrapperRef.current
+          ? tableWrapperRef.current.contains(target)
+          : false;
+      const insideCell =
+        target && tableWrapperRef.current
+          ? Boolean(target.closest('[data-cell-container="true"]'))
+          : false;
 
       if (!insideTable || !insideCell) {
         skipRefocusRef.current = true;
         setActiveCell(null);
         _onActiveCellIndexChange?.(null);
       }
+
+      if ((addFieldMenuOpen || pendingFieldType) && !insideAddMenus) {
+        setAddFieldMenuOpen(false);
+        setPendingFieldType(null);
+        setPendingFieldName("");
+        setAddFieldAnchor(null);
+      }
+
+      if (renamingFieldId && !insideRename) {
+        setRenamingFieldId(null);
+        setRenamingValue("");
+        setRenameAnchor(null);
+      }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+    document.addEventListener("mousedown", handleClickOutside, true);
+    return () => document.removeEventListener("mousedown", handleClickOutside, true);
+  }, [addFieldMenuOpen, pendingFieldType, _onActiveCellIndexChange, renamingFieldId]);
 
   useEffect(() => {
     const useFields = (fields ?? DEFAULT_FIELDS).sort((a, b) => a.order - b.order);
@@ -270,51 +331,86 @@ export default function BaseTable({
     setData(buildRows(useFields, useRecords));
     setSelectedRows(new Set());
     setContextMenu(null);
+    // Keep add-field name input focused if open
+    if (pendingFieldType && addFieldNameInputRef.current) {
+      addFieldNameInputRef.current.focus();
+      addFieldNameInputRef.current.setSelectionRange(
+        addFieldNameInputRef.current.value.length,
+        addFieldNameInputRef.current.value.length,
+      );
+    }
     setActiveCell((prev) => {
       if (!prev) return prev;
       const columnStillExists = useFields.some((f) => f.id === prev.colId);
       const rowStillExists = prev.rowIndex >= 0 && prev.rowIndex < useRecords.length;
       return columnStillExists && rowStillExists ? prev : null;
     });
-  }, [fields, records]);
+    if (renamingFieldId && !useFields.some((f) => f.id === renamingFieldId)) {
+      setRenamingFieldId(null);
+      setRenamingValue("");
+      setRenameAnchor(null);
+    }
+  }, [fields, records, pendingFieldType, renamingFieldId]);
   hoveredRowRef.current = hoveredRow;
   selectedRowsRef.current = selectedRows;
   activeCellRef.current = activeCell;
+  const computeAddFieldAnchor = useCallback(() => {
+    const button = addFieldButtonRef.current;
+    if (!button) return null;
+    const rect = button.getBoundingClientRect();
+    return { top: rect.bottom + 6, left: rect.left };
+  }, []);
   const addRow = useCallback(() => {
     if (onAddRow) {
+      setAddFieldMenuOpen(false);
+      setPendingFieldType(null);
+      setPendingFieldName("");
+      setAddFieldAnchor(null);
+      setRenamingFieldId(null);
+      setRenameAnchor(null);
       onAddRow();
       return;
     }
+    setAddFieldMenuOpen(false);
+    setPendingFieldType(null);
+    setPendingFieldName("");
+    setAddFieldAnchor(null);
+    setRenamingFieldId(null);
+    setRenameAnchor(null);
     const newRecord = createEmptyRecord(localFields);
     setLocalRecords((prev) => [...prev, newRecord]);
     setData((old) => [...old, createEmptyRow(localFields)]);
   }, [localFields, onAddRow]);
 
-  const addColumn = useCallback(() => {
-    if (onAddColumn) {
-      onAddColumn();
-      return;
-    }
-    const newFieldId = `custom_${Date.now()}`;
-    const newField: FieldShape = {
-      id: newFieldId,
-      name: `Field ${localFields.length + 1}`,
-      type: "TEXT",
-      order: localFields.length,
-    };
-    setLocalFields((prev) => [...prev, newField]);
-    setColumnOrder((prev) => [...prev, newFieldId]);
-    setLocalRecords((prev) =>
-      prev.map((record) => ({
-        ...record,
-        cells: [
-          ...record.cells,
-          { fieldId: newFieldId, valueText: null, valueNumber: null },
-        ],
-      })),
-    );
-    setData((prev) => prev.map((row) => ({ ...row, [newFieldId]: "" })));
-  }, [localFields.length, onAddColumn]);
+  const addColumn = useCallback(
+    (type?: FieldType, name?: string) => {
+      if (onAddColumn) {
+        onAddColumn(type, name);
+        return;
+      }
+      const newFieldId = `custom_${Date.now()}`;
+      const trimmedName = name?.trim();
+      const newField: FieldShape = {
+        id: newFieldId,
+        name: trimmedName ?? `Field ${localFields.length + 1}`,
+        type: type ?? "TEXT",
+        order: localFields.length,
+      };
+      setLocalFields((prev) => [...prev, newField]);
+      setColumnOrder((prev) => [...prev, newFieldId]);
+      setLocalRecords((prev) =>
+        prev.map((record) => ({
+          ...record,
+          cells: [
+            ...record.cells,
+            { fieldId: newFieldId, valueText: null, valueNumber: null },
+          ],
+        })),
+      );
+      setData((prev) => prev.map((row) => ({ ...row, [newFieldId]: "" })));
+    },
+    [localFields.length, onAddColumn],
+  );
 
   const removeColumn = useCallback(
     (colId: string) => {
@@ -357,6 +453,29 @@ export default function BaseTable({
         {},
       ),
     [localFields],
+  );
+
+  const commitRename = useCallback(
+    (fieldId: string, nextName: string) => {
+      setRenamingFieldId(null);
+      const trimmed = nextName.trim();
+      const current = fieldLookup[fieldId]?.name;
+      if (!trimmed || trimmed === current) {
+        setRenamingValue("");
+        setRenameAnchor(null);
+        return;
+      }
+      if (onRenameColumn) {
+        onRenameColumn(fieldId, trimmed);
+      } else {
+        setLocalFields((prev) =>
+          prev.map((f) => (f.id === fieldId ? { ...f, name: trimmed } : f)),
+        );
+      }
+      setRenamingValue("");
+      setRenameAnchor(null);
+    },
+    [fieldLookup, onRenameColumn],
   );
 
   const recordCellLookup = useMemo(() => {
@@ -517,7 +636,7 @@ export default function BaseTable({
           if (process.env.NODE_ENV === "production") return;
           console.log("editable cell mount", { key, rowIndex, colIndex, recordId });
           return () => console.log("editable cell unmount", { key, rowIndex, colIndex, recordId });
-        }, [colIndex, key, recordId, rowIndex]);
+        }, [rowIndex, colIndex, recordId]);
 
         useEffect(() => {
           setEditValue(cellValue == null ? "" : String(cellValue));
@@ -594,7 +713,7 @@ export default function BaseTable({
             _onCellChange(recordId, key, normalized);
           }, 700);
           return () => window.clearTimeout(timer);
-        }, [editValue, isActive, _onCellChange, field, canonicalValue, recordId, key]);
+        }, [editValue, isActive, field, canonicalValue, recordId]);
 
           return (
           <div
@@ -762,7 +881,22 @@ export default function BaseTable({
         return {
           accessorKey: key,
           header: () => (
-            <div className="flex items-center gap-2">
+            <div
+              className="flex items-center gap-2"
+              data-rename-trigger="true"
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setHeaderMenu(null);
+                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                setRenameAnchor({
+                  top: rect.bottom + 6,
+                  left: rect.left,
+                  width: rect.width,
+                });
+                setRenamingFieldId(key);
+                setRenamingValue(headerName);
+              }}
+            >
               <span className="text-[11px] text-gray-400">{letter}</span>
               {icon}
               <span className="font-medium text-gray-700 truncate">{headerName}</span>
@@ -819,7 +953,14 @@ export default function BaseTable({
       header: () => (
         <div className="flex items-center justify-center">
           <button
-            onClick={addColumn}
+            ref={addFieldButtonRef}
+            onClick={() => {
+              const anchor = computeAddFieldAnchor();
+              if (anchor) setAddFieldAnchor(anchor);
+              setPendingFieldType(null);
+              setPendingFieldName("");
+              setAddFieldMenuOpen((p) => !p);
+            }}
             className="flex h-7 w-7 items-center justify-center rounded border border-gray-200 text-gray-500 hover:bg-gray-50"
             aria-label="Add column"
             type="button"
@@ -836,13 +977,13 @@ export default function BaseTable({
     return [rowNumberCol, ...cols, addFieldCol];
   }, [
     visibleColumnOrder,
-    addColumn,
     fieldLookup,
     _onCellChange,
     getCanonicalValue,
     updateActiveCell,
     handleCellNavigation,
     _onActiveCellIndexChange,
+    computeAddFieldAnchor,
     data.length,
   ]);
 
@@ -984,21 +1125,23 @@ export default function BaseTable({
                   key={`add-row-${column.id}`}
                   className={`border-b border-r border-gray-200 align-middle ${widthClass(column.id)}`}
                 >
-                  <div className="px-3 py-[10px] text-sm">
-                    {column.id === "rowNumber" ? (
-                      <button
-                        onClick={addRow}
-                        className="flex h-6 w-6 items-center justify-center rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
-                        aria-label="Add row"
-                        type="button"
-                      >
-                        <FiPlus />
-                      </button>
-                    ) : null}
-                  </div>
-                </td>
-              ))}
-            </tr>
+         <div className="px-3 py-[10px] text-sm">
+            {column.id === "rowNumber" ? (
+              <button
+                onClick={addRow}
+                className="flex h-6 w-6 items-center justify-center rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
+                aria-label="Add row"
+                type="button"
+                data-add-field-name="false"
+                data-add-field-menu="false"
+              >
+                <FiPlus />
+              </button>
+            ) : null}
+         </div>
+       </td>
+     ))}
+   </tr>
           </tbody>
         </table>
       </div>
@@ -1009,16 +1152,163 @@ export default function BaseTable({
         <div>
           {isLoading ? "Loading records..." : `${data.length} records`}
         </div>
+      </div>
 
-        <div className="flex items-center gap-2">
+      {addFieldMenuOpen && addFieldAnchor && (
+        <div
+          data-add-field-menu="true"
+          className="fixed z-40 w-40 rounded-lg border border-gray-200 bg-white shadow-lg text-sm text-gray-800"
+          style={{ top: addFieldAnchor.top, left: addFieldAnchor.left }}
+        >
+          <div className="px-3 py-2 border-b text-gray-700 font-medium">New field type</div>
           <button
-            onClick={addRow}
-            className="px-3 py-1 rounded-full border hover:bg-gray-50"
+            type="button"
+            className="w-full px-3 py-2 text-left hover:bg-gray-50"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setAddFieldMenuOpen(false);
+              const anchor = computeAddFieldAnchor();
+              if (anchor) setAddFieldAnchor(anchor);
+              setPendingFieldType("TEXT");
+              setPendingFieldName("");
+            }}
           >
-            + Add
+            Text
+          </button>
+          <button
+            type="button"
+            className="w-full px-3 py-2 text-left hover:bg-gray-50"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setAddFieldMenuOpen(false);
+              const anchor = computeAddFieldAnchor();
+              if (anchor) setAddFieldAnchor(anchor);
+              setPendingFieldType("NUMBER");
+              setPendingFieldName("");
+            }}
+          >
+            Number
           </button>
         </div>
-      </div>
+      )}
+
+      {pendingFieldType && addFieldAnchor && (
+        <div
+          data-add-field-name="true"
+          className="fixed z-50 w-60 rounded-lg border border-gray-200 bg-white shadow-lg text-sm text-gray-800"
+          style={{ top: addFieldAnchor.top, left: addFieldAnchor.left }}
+        >
+          <div className="px-3 py-2 border-b text-gray-700 font-medium">
+            New {pendingFieldType === "NUMBER" ? "number" : "text"} field
+          </div>
+          <div className="px-3 py-2 space-y-2">
+            <label className="block text-xs text-gray-600">
+              Field name (optional)
+              <input
+                ref={addFieldNameInputRef}
+                type="text"
+                value={pendingFieldName}
+                onChange={(e) => setPendingFieldName(e.target.value)}
+                onFocus={() => {
+                  if (process.env.NODE_ENV !== "production") {
+                    console.log("field name focus");
+                  }
+                }}
+                onBlur={(e) => {
+                  if (process.env.NODE_ENV !== "production") {
+                    console.log("field name blur", {
+                      relatedTarget: (e.relatedTarget as HTMLElement | null)?.tagName,
+                      activeElement: document.activeElement?.tagName,
+                    });
+                  }
+                }}
+                className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-gray-800"
+                placeholder={`Field ${localFields.length + 1}`}
+              />
+            </label>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                className="px-3 py-1 rounded border border-gray-200 text-gray-700 hover:bg-gray-50"
+                onClick={() => {
+                  setPendingFieldType(null);
+                  setPendingFieldName("");
+                  setAddFieldMenuOpen(false);
+                  setAddFieldAnchor(null);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700"
+                onClick={() => {
+                  addColumn(pendingFieldType, pendingFieldName);
+                  setPendingFieldType(null);
+                  setPendingFieldName("");
+                  setAddFieldAnchor(null);
+                }}
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {renamingFieldId && renameAnchor && (
+        <div
+          data-rename-field="true"
+          className="fixed z-50 w-72 rounded-lg border border-gray-200 bg-white shadow-lg text-sm text-gray-800"
+          style={{ top: renameAnchor.top, left: renameAnchor.left }}
+        >
+          <div className="px-3 py-2 border-b text-gray-700 font-medium">Rename field</div>
+          <div className="px-3 py-2 space-y-2">
+            <input
+              ref={renameInputRef}
+              type="text"
+              value={renamingValue}
+              onChange={(e) => setRenamingValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitRename(renamingFieldId, renamingValue);
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setRenamingFieldId(null);
+                  setRenamingValue("");
+                  setRenameAnchor(null);
+                }
+              }}
+              onBlur={() => commitRename(renamingFieldId, renamingValue)}
+              className="w-full rounded border border-gray-300 px-2 py-2 text-gray-800"
+              placeholder="Field name"
+            />
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="px-3 py-1 rounded border border-gray-200 text-gray-700 hover:bg-gray-50"
+                onClick={() => {
+                  setRenamingFieldId(null);
+                  setRenamingValue("");
+                  setRenameAnchor(null);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700"
+                onClick={() => commitRename(renamingFieldId, renamingValue)}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {contextMenu && (
         <div

@@ -1,3 +1,4 @@
+import { faker } from "@faker-js/faker";
 import { FieldType } from "../../../../generated/prisma";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -7,6 +8,7 @@ import { createTRPCRouter, protectedProcedure } from "../trpc";
 const DEFAULT_FIELDS = [
   { name: "Name", type: FieldType.TEXT, order: 0 },
   { name: "Notes", type: FieldType.TEXT, order: 1 },
+  { name: "Numbers", type: FieldType.NUMBER, order: 2 },
 ];
 const DEFAULT_RECORD_COUNT = 5;
 
@@ -108,8 +110,16 @@ export const tableRouter = createTRPCRouter({
                   fields.map((field) => ({
                     recordId: record.id,
                     fieldId: field.id,
-                    valueText: null,
-                    valueNumber: null,
+                    valueText:
+                      field.type === FieldType.NUMBER
+                        ? null
+                        : field.name.toLowerCase().includes("name")
+                          ? faker.person.fullName()
+                          : faker.lorem.sentence(4),
+                    valueNumber:
+                      field.type === FieldType.NUMBER
+                        ? faker.number.int({ min: 1, max: 1000 })
+                        : null,
                   })),
                 ),
                 select: {
@@ -184,6 +194,28 @@ export const tableRouter = createTRPCRouter({
       return {
         field,
       };
+    }),
+
+  renameField: protectedProcedure
+    .input(z.object({ fieldId: z.string(), name: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const field = await ctx.db.field.findFirst({
+        where: { id: input.fieldId, table: { base: { ownerId: ctx.session.user.id } } },
+        include: { table: { select: { id: true } } },
+      });
+      if (!field) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Field not found" });
+      }
+      const trimmed = input.name.trim();
+      if (!trimmed) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Name cannot be empty" });
+      }
+      const updated = await ctx.db.field.update({
+        where: { id: input.fieldId },
+        data: { name: trimmed },
+        select: { id: true, name: true, type: true, order: true, isHidden: true },
+      });
+      return { field: updated, tableId: field.table.id };
     }),
 
   addRecord: protectedProcedure
