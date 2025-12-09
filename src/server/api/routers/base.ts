@@ -105,9 +105,52 @@ export const baseRouter = createTRPCRouter({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const result = await ctx.db.base.deleteMany({
-        where: { id: input.id, ownerId: ctx.session.user.id },
+      return ctx.db.$transaction(async (tx) => {
+        const base = await tx.base.findFirst({
+          where: { id: input.id, ownerId: ctx.session.user.id },
+          select: { id: true },
+        });
+        if (!base) {
+          return { deleted: 0 };
+        }
+
+        const tables = await tx.table.findMany({
+          where: { baseId: base.id },
+          select: { id: true },
+        });
+        const tableIds = tables.map((t) => t.id);
+
+        if (tableIds.length) {
+          const recordIds = await tx.record.findMany({
+            where: { tableId: { in: tableIds } },
+            select: { id: true },
+          });
+          const fieldIds = await tx.field.findMany({
+            where: { tableId: { in: tableIds } },
+            select: { id: true },
+          });
+
+          const recordIdList = recordIds.map((r) => r.id);
+          const fieldIdList = fieldIds.map((f) => f.id);
+
+          if (recordIdList.length) {
+            await tx.cell.deleteMany({ where: { recordId: { in: recordIdList } } });
+            await tx.record.deleteMany({ where: { id: { in: recordIdList } } });
+          }
+
+          if (fieldIdList.length) {
+            await tx.cell.deleteMany({ where: { fieldId: { in: fieldIdList } } });
+            await tx.field.deleteMany({ where: { id: { in: fieldIdList } } });
+          }
+
+          await tx.table.deleteMany({ where: { id: { in: tableIds } } });
+        }
+
+        const result = await tx.base.deleteMany({
+          where: { id: base.id, ownerId: ctx.session.user.id },
+        });
+
+        return { deleted: result.count };
       });
-      return { deleted: result.count };
     }),
 });
