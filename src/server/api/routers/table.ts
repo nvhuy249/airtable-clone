@@ -5,6 +5,204 @@ import { z } from "zod";
 
 import { createTRPCRouter, protectedProcedure } from "../trpc";
 
+const NUMERIC_REGEX = "^-?\\d+(\\.\\d+)?$";
+
+const filterConditionSchema = z.object({
+  fieldId: z.string(),
+  operator: z.enum([
+    "contains",
+    "not_contains",
+    "is",
+    "is_not",
+    "is_empty",
+    "is_not_empty",
+    "greater_than",
+    "less_than",
+    "greater_than_or_equal",
+    "less_than_or_equal",
+  ]),
+  value: z.string().default(""),
+});
+
+const filtersSchema = z.object({
+  connector: z.enum(["and", "or"]).default("and"),
+  conditions: z.array(filterConditionSchema).default([]),
+});
+
+const sortItemSchema = z.object({
+  fieldId: z.string(),
+  direction: z.enum(["asc", "desc"]),
+});
+
+const decodeCursor = (cursor?: string | null) => {
+  if (!cursor) return 0;
+  const decoded = Number(Buffer.from(cursor, "base64").toString("utf8"));
+  return Number.isFinite(decoded) && decoded > 0 ? decoded : 0;
+};
+
+const encodeCursor = (offset: number) =>
+  Buffer.from(String(offset), "utf8").toString("base64");
+
+const buildTextValueExpr = (alias: string) =>
+  `LOWER(COALESCE(${alias}."valueText", ${alias}."valueNumber"::text, ''))`;
+
+const buildNumberValueExpr = (alias: string) =>
+  `(CASE
+      WHEN ${alias}."valueNumber" IS NOT NULL THEN ${alias}."valueNumber"
+      WHEN ${alias}."valueText" ~ '${NUMERIC_REGEX}' THEN ${alias}."valueText"::double precision
+      ELSE NULL
+    END)`;
+
+const buildFilterClause = (
+  filters: z.infer<typeof filtersSchema>,
+  addParam: (val: unknown) => string,
+  fieldLookup: Record<string, { type: FieldType }>,
+) => {
+  if (!filters?.conditions?.length) return "";
+
+  const clauses: string[] = [];
+
+  filters.conditions.forEach((condition) => {
+    const field = fieldLookup[condition.fieldId];
+    if (!field) return;
+
+    const fieldParam = addParam(condition.fieldId);
+
+    if (
+      ["greater_than", "less_than", "greater_than_or_equal", "less_than_or_equal", "is"].includes(
+        condition.operator,
+      ) &&
+      field.type === FieldType.NUMBER
+    ) {
+      const parsed = Number(condition.value);
+      if (!Number.isFinite(parsed)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Invalid numeric filter value for field ${condition.fieldId}`,
+        });
+      }
+      const valueParam = addParam(parsed);
+      const numExpr = buildNumberValueExpr("c");
+
+      switch (condition.operator) {
+        case "greater_than":
+          clauses.push(
+            `EXISTS (SELECT 1 FROM "Cell" c WHERE c."recordId" = r.id AND c."fieldId" = ${fieldParam} AND ${numExpr} > ${valueParam})`,
+          );
+          break;
+        case "less_than":
+          clauses.push(
+            `EXISTS (SELECT 1 FROM "Cell" c WHERE c."recordId" = r.id AND c."fieldId" = ${fieldParam} AND ${numExpr} < ${valueParam})`,
+          );
+          break;
+        case "greater_than_or_equal":
+          clauses.push(
+            `EXISTS (SELECT 1 FROM "Cell" c WHERE c."recordId" = r.id AND c."fieldId" = ${fieldParam} AND ${numExpr} >= ${valueParam})`,
+          );
+          break;
+        case "less_than_or_equal":
+          clauses.push(
+            `EXISTS (SELECT 1 FROM "Cell" c WHERE c."recordId" = r.id AND c."fieldId" = ${fieldParam} AND ${numExpr} <= ${valueParam})`,
+          );
+          break;
+        case "is":
+          clauses.push(
+            `EXISTS (SELECT 1 FROM "Cell" c WHERE c."recordId" = r.id AND c."fieldId" = ${fieldParam} AND ${numExpr} = ${valueParam})`,
+          );
+          break;
+      }
+      return;
+    }
+
+    if (["is_empty", "is_not_empty"].includes(condition.operator)) {
+      const notEmptyCheck =
+        field.type === FieldType.NUMBER
+          ? `${buildNumberValueExpr("c")} IS NOT NULL`
+          : `(${buildTextValueExpr("c")} <> '' OR c."valueNumber" IS NOT NULL)`;
+
+      if (condition.operator === "is_empty") {
+        clauses.push(
+          `NOT EXISTS (SELECT 1 FROM "Cell" c WHERE c."recordId" = r.id AND c."fieldId" = ${fieldParam} AND ${notEmptyCheck})`,
+        );
+      } else {
+        clauses.push(
+          `EXISTS (SELECT 1 FROM "Cell" c WHERE c."recordId" = r.id AND c."fieldId" = ${fieldParam} AND ${notEmptyCheck})`,
+        );
+      }
+      return;
+    }
+
+    const valueParam = addParam(condition.value ?? "");
+    const valueExpr =
+      field.type === FieldType.NUMBER ? buildNumberValueExpr("c") : buildTextValueExpr("c");
+    const comparator = field.type === FieldType.NUMBER ? valueParam : `LOWER(${valueParam})`;
+
+    switch (condition.operator) {
+      case "contains":
+        clauses.push(
+          `EXISTS (SELECT 1 FROM "Cell" c WHERE c."recordId" = r.id AND c."fieldId" = ${fieldParam} AND ${valueExpr} LIKE '%' || ${comparator} || '%')`,
+        );
+        break;
+      case "not_contains":
+        clauses.push(
+          `NOT EXISTS (SELECT 1 FROM "Cell" c WHERE c."recordId" = r.id AND c."fieldId" = ${fieldParam} AND ${valueExpr} LIKE '%' || ${comparator} || '%')`,
+        );
+        break;
+      case "is":
+        if (field.type !== FieldType.NUMBER) {
+          clauses.push(
+            `EXISTS (SELECT 1 FROM "Cell" c WHERE c."recordId" = r.id AND c."fieldId" = ${fieldParam} AND ${valueExpr} = ${comparator})`,
+          );
+        }
+        break;
+      case "is_not":
+        clauses.push(
+          `NOT EXISTS (SELECT 1 FROM "Cell" c WHERE c."recordId" = r.id AND c."fieldId" = ${fieldParam} AND ${valueExpr} = ${comparator})`,
+        );
+        break;
+    }
+  });
+
+  if (!clauses.length) return "";
+
+  const connector = filters.connector === "or" ? " OR " : " AND ";
+  return clauses.map((c) => `(${c})`).join(connector);
+};
+
+const buildSortClause = (
+  sorts: z.infer<typeof sortItemSchema>[],
+  addParam: (val: unknown) => string,
+  fieldLookup: Record<string, { type: FieldType }>,
+) => {
+  const joinSegments: string[] = [];
+  const orderSegments: string[] = [];
+
+  sorts.forEach((sort, idx) => {
+    const field = fieldLookup[sort.fieldId];
+    if (!field) return;
+    const alias = `s${idx}`;
+    const fieldParam = addParam(sort.fieldId);
+    joinSegments.push(
+      `LEFT JOIN "Cell" ${alias} ON ${alias}."recordId" = r.id AND ${alias}."fieldId" = ${fieldParam}`,
+    );
+
+    if (field.type === FieldType.NUMBER) {
+      const numExpr = buildNumberValueExpr(alias);
+      orderSegments.push(`${numExpr} ${sort.direction.toUpperCase()} NULLS LAST`);
+    } else {
+      const textExpr = buildTextValueExpr(alias);
+      orderSegments.push(`${textExpr} ${sort.direction.toUpperCase()}`);
+    }
+  });
+
+  orderSegments.push('r."createdAt" ASC', "r.id ASC");
+
+  return {
+    joinClause: joinSegments.length ? joinSegments.join("\n") : "",
+    orderClause: orderSegments.join(", "),
+  };
+};
+
 const DEFAULT_FIELDS = [
   { name: "Name", type: FieldType.TEXT, order: 0 },
   { name: "Notes", type: FieldType.TEXT, order: 1 },
@@ -14,8 +212,15 @@ const DEFAULT_RECORD_COUNT = 5;
 
 export const tableRouter = createTRPCRouter({
   byId: protectedProcedure
-    .input(z.object({ id: z.string() }))
+    .input(
+      z.object({
+        id: z.string(),
+        includeRecords: z.boolean().optional(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
+      const includeRecords = input.includeRecords ?? false;
+
       const table = await ctx.db.table.findFirst({
         where: {
           id: input.id,
@@ -25,24 +230,10 @@ export const tableRouter = createTRPCRouter({
           id: true,
           name: true,
           baseId: true,
+          _count: { select: { records: true } },
           fields: {
             orderBy: { order: "asc" },
             select: { id: true, name: true, type: true, order: true, isHidden: true },
-          },
-          records: {
-            orderBy: { createdAt: "asc" },
-            select: {
-              id: true,
-              cells: {
-                select: {
-                  id: true,
-                  recordId: true,
-                  fieldId: true,
-                  valueText: true,
-                  valueNumber: true,
-                },
-              },
-            },
           },
         },
       });
@@ -51,7 +242,28 @@ export const tableRouter = createTRPCRouter({
         throw new TRPCError({ code: "NOT_FOUND" });
       }
 
-      return table;
+      if (!includeRecords) {
+        return { ...table, records: [] };
+      }
+
+      const records = await ctx.db.record.findMany({
+        where: { tableId: table.id },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          cells: {
+            select: {
+              id: true,
+              recordId: true,
+              fieldId: true,
+              valueText: true,
+              valueNumber: true,
+            },
+          },
+        },
+      });
+
+      return { ...table, records };
     }),
 
   create: protectedProcedure
@@ -143,6 +355,7 @@ export const tableRouter = createTRPCRouter({
 
         return {
           ...table,
+          _count: { records: records.length },
           fields: orderedFields,
           records: recordsWithCells,
         };
@@ -153,6 +366,124 @@ export const tableRouter = createTRPCRouter({
       }
 
       return fullTable;
+    }),
+
+  records: protectedProcedure
+    .input(
+      z.object({
+        tableId: z.string(),
+        limit: z.number().int().min(1).max(200).default(50),
+        cursor: z.string().nullish(),
+        filters: filtersSchema.default({ connector: "and", conditions: [] }),
+        sorts: z.array(sortItemSchema).default([]),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const table = await ctx.db.table.findFirst({
+        where: { id: input.tableId, base: { ownerId: ctx.session.user.id } },
+        select: { id: true },
+      });
+      if (!table) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Table not found" });
+      }
+
+      const fields = await ctx.db.field.findMany({
+        where: { tableId: input.tableId },
+        select: { id: true, type: true },
+      });
+      const fieldLookup = fields.reduce<Record<string, { type: FieldType }>>(
+        (acc, field) => ({ ...acc, [field.id]: { type: field.type } }),
+        {},
+      );
+
+      const limit = input.limit ?? 50;
+      const offset = decodeCursor(input.cursor) ?? 0;
+      const limitPlusOne = limit + 1;
+
+      const baseParams: unknown[] = [ctx.session.user.id, input.tableId];
+      const addBaseParam = (val: unknown) => {
+        baseParams.push(val);
+        return `$${baseParams.length}`;
+      };
+
+      const filterClause = buildFilterClause(input.filters, addBaseParam, fieldLookup);
+
+      const countParams = [...baseParams];
+      const countSql = `
+        SELECT COUNT(*)::int AS count
+        FROM "Record" r
+        JOIN "Table" t ON t.id = r."tableId"
+        JOIN "Base" b ON b.id = t."baseId"
+        WHERE b."ownerId" = $1 AND r."tableId" = $2
+        ${filterClause ? `AND (${filterClause})` : ""}
+      `;
+      const countResult = await ctx.db.$queryRawUnsafe<{ count: number }[]>(
+        countSql,
+        ...countParams,
+      );
+      const total = countResult[0]?.count ?? 0;
+
+      const fetchParams = [...baseParams];
+      const addFetchParam = (val: unknown) => {
+        fetchParams.push(val);
+        return `$${fetchParams.length}`;
+      };
+
+      const { joinClause, orderClause } = buildSortClause(
+        input.sorts,
+        addFetchParam,
+        fieldLookup,
+      );
+      const limitParam = addFetchParam(limitPlusOne);
+      const offsetParam = addFetchParam(offset);
+
+      const recordsSql = `
+        WITH filtered AS (
+          SELECT r.id, r."createdAt"
+          FROM "Record" r
+          JOIN "Table" t ON t.id = r."tableId"
+          JOIN "Base" b ON b.id = t."baseId"
+          WHERE b."ownerId" = $1 AND r."tableId" = $2
+          ${filterClause ? `AND (${filterClause})` : ""}
+        )
+        SELECT r.id
+        FROM filtered r
+        ${joinClause}
+        ORDER BY ${orderClause}
+        LIMIT ${limitParam}
+        OFFSET ${offsetParam};
+      `;
+
+      const rows = await ctx.db.$queryRawUnsafe<{ id: string }[]>(recordsSql, ...fetchParams);
+      const sliced = rows.slice(0, limit);
+      const nextCursor = rows.length > limit ? encodeCursor(offset + limit) : null;
+      const recordIds = sliced.map((row) => row.id);
+
+      const records = await ctx.db.record.findMany({
+        where: { id: { in: recordIds } },
+        select: {
+          id: true,
+          cells: {
+            select: {
+              id: true,
+              recordId: true,
+              fieldId: true,
+              valueText: true,
+              valueNumber: true,
+            },
+          },
+        },
+      });
+      const recordMap = new Map(records.map((r) => [r.id, r]));
+      const orderedRecords = recordIds
+        .map((id) => recordMap.get(id))
+        .filter((r): r is NonNullable<typeof r> => Boolean(r));
+
+      return {
+        records: orderedRecords,
+        nextCursor,
+        total,
+      };
     }),
 
   addField: protectedProcedure
@@ -391,6 +722,72 @@ export const tableRouter = createTRPCRouter({
       return { recordIds: input.recordIds, tableId };
     }),
 
+  seedRecords: protectedProcedure
+    .input(
+      z.object({
+        tableId: z.string(),
+        count: z.number().int().min(1).max(100_000).default(100_000),
+        chunkSize: z.number().int().min(1).max(5_000).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const table = await ctx.db.table.findFirst({
+        where: { id: input.tableId, base: { ownerId: ctx.session.user.id } },
+        select: { id: true, name: true },
+      });
+      if (!table) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Table not found" });
+      }
+
+      const fields = await ctx.db.field.findMany({
+        where: { tableId: table.id },
+        select: { id: true, name: true, type: true },
+      });
+      if (!fields.length) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Cannot seed records without fields",
+        });
+      }
+
+      const totalToInsert = Math.min(input.count, 100_000);
+      const chunkSize = Math.min(input.chunkSize ?? 1_000, 5_000);
+      const batchSize = Math.min(totalToInsert, chunkSize);
+
+      const newRecords = await ctx.db.record.createManyAndReturn({
+        data: Array.from({ length: batchSize }).map(() => ({
+          tableId: table.id,
+        })),
+        select: { id: true },
+      });
+
+      const cellsPayload = newRecords.flatMap((record) =>
+        fields.map((field) => ({
+          recordId: record.id,
+          fieldId: field.id,
+          valueText:
+            field.type === FieldType.NUMBER
+              ? null
+              : field.name.toLowerCase().includes("name")
+                ? faker.person.fullName()
+                : faker.lorem.sentence(4),
+          valueNumber:
+            field.type === FieldType.NUMBER
+              ? faker.number.int({ min: 1, max: 1000 })
+              : null,
+        })),
+      );
+
+      if (cellsPayload.length) {
+        await ctx.db.cell.createMany({ data: cellsPayload });
+      }
+
+      const inserted = newRecords.length;
+      const remaining = Math.max(totalToInsert - inserted, 0);
+
+      return { inserted, remaining };
+    }),
+
   rename: protectedProcedure
     .input(
       z.object({
@@ -412,5 +809,5 @@ export const tableRouter = createTRPCRouter({
         data: { name: input.name }
       });
       return updated;
-    })
+    }),
 });

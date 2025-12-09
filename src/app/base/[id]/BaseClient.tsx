@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import AppRail from "./components/AppRail";
 import TableTopBar from "./components/TableTopBar";
@@ -26,13 +26,13 @@ const makeEmptyCell = (recordId: string, fieldId: string): TableCell => ({
 
 const OPTIMISTIC_FIELD_PREFIX = "temp-field-";
 
-const makeEmptyRecord = (fields: TableField[]): TableRecord => {
-  const recordId = `temp-record-${Date.now()}`;
-  return {
-    id: recordId,
-    cells: fields.map((field) => makeEmptyCell(recordId, field.id)),
-  };
-};
+// const makeEmptyRecord = (fields: TableField[]): TableRecord => {
+//   const recordId = `temp-record-${Date.now()}`;
+//   return {
+//     id: recordId,
+//     cells: fields.map((field) => makeEmptyCell(recordId, field.id)),
+//   };
+// };
 
 interface BaseClientProps {
   baseId: string;
@@ -52,7 +52,6 @@ export default function BaseClient({
   tables,
   user,
 }: BaseClientProps) {
-  type AddRecordContext = { previous?: TableById; tableId: string; optimisticId?: string };
   const userInitial =
     user?.name?.charAt(0)?.toUpperCase() ??
     user?.email?.charAt(0)?.toUpperCase() ??
@@ -75,15 +74,93 @@ export default function BaseClient({
   );
   const [hiddenFieldIds, setHiddenFieldIds] = useState<string[]>([]);
   const cancelledOptimisticFieldIds = useRef<Set<string>>(new Set());
-  const pendingRecordEdits = useRef<
-    Map<string, { fieldId: string; value: string | number | null }[]>
-  >(new Map());
   const [filters, setFilters] = useState<{ connector: "and" | "or"; conditions: FilterCondition[] }>({
     connector: "and",
     conditions: [],
   });
   const [sortUi, setSortUi] = useState<SortState>({ items: [], auto: true });
   const [appliedSorts, setAppliedSorts] = useState<SortItem[]>([]);
+  const RECORD_PAGE_SIZE = 100;
+
+  const serializedFilters = useMemo(
+    () => ({
+      connector: filters.connector,
+      conditions: filters.conditions.map((c) => ({
+        fieldId: c.fieldId,
+        operator: c.operator,
+        value: c.value ?? "",
+      })),
+    }),
+    [filters],
+  );
+
+  const serializedSorts = useMemo(
+    () => appliedSorts.map((s) => ({ fieldId: s.fieldId, direction: s.direction })),
+    [appliedSorts],
+  );
+
+  const recordsQueryInput = useMemo(() => {
+    if (!activeTableId) return null;
+    return {
+      tableId: activeTableId,
+      limit: RECORD_PAGE_SIZE,
+      filters: serializedFilters,
+      sorts: serializedSorts,
+    };
+  }, [activeTableId, serializedFilters, serializedSorts]);
+
+  const recordsQuery = api.table.records.useInfiniteQuery(
+    recordsQueryInput ?? {
+      tableId: "__inactive__",
+      limit: RECORD_PAGE_SIZE,
+      filters: serializedFilters,
+      sorts: serializedSorts,
+    },
+    {
+      enabled: Boolean(recordsQueryInput),
+      getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      refetchOnMount: false,
+      staleTime: 60 * 1000,
+    },
+  );
+
+  const records = useMemo(
+    () => recordsQuery.data?.pages.flatMap((page) => page.records) ?? [],
+    [recordsQuery.data],
+  );
+  const totalCount = recordsQuery.data?.pages[0]?.total ?? undefined;
+  const hasMore = Boolean(recordsQuery.hasNextPage);
+  const isFetchingMore = recordsQuery.isFetchingNextPage;
+  const isRecordsLoading = recordsQuery.isLoading || recordsQuery.isFetchingNextPage;
+  const fetchNextPage = recordsQuery.fetchNextPage;
+  const [seedRemaining, setSeedRemaining] = useState<number>(0);
+
+  const seedRecords = api.table.seedRecords.useMutation({
+    onSuccess: (result) => {
+      setSeedRemaining((prev) => Math.max(prev - (result?.inserted ?? 0), 0));
+      if (recordsQueryInput) {
+        void utils.table.records.invalidate(recordsQueryInput);
+      } else {
+        void utils.table.records.invalidate();
+      }
+      void utils.table.byId.invalidate({ id: activeTableId });
+    },
+  });
+
+  const continueSeeding = seedRemaining > 0 && !seedRecords.isPending;
+  useEffect(() => {
+    if (!activeTableId) return;
+    if (!continueSeeding) return;
+    const nextCount = Math.min(seedRemaining, 1_000);
+    seedRecords.mutate({ tableId: activeTableId, count: nextCount, chunkSize: 1_000 });
+  }, [activeTableId, continueSeeding, seedRecords, seedRemaining]);
+
+  const handleLoadMore = useCallback(() => {
+    if (!hasMore || isFetchingMore) return;
+    void fetchNextPage();
+  }, [fetchNextPage, hasMore, isFetchingMore]);
 
   useEffect(() => {
     setHiddenFieldIds([]);
@@ -121,36 +198,56 @@ export default function BaseClient({
     },
   });
 
-  const updateCell = api.table.updateCell.useMutation({
-    onMutate: async () => {
-      const previous = utils.table.byId.getData({ id: activeTableId });
-      return { previous };
-    },
-    onError: (_err, _variables, context) => {
-      if (!context?.previous) return;
-      utils.table.byId.setData({ id: activeTableId }, context.previous);
-    },
-    onSuccess: (cell) => {
-      utils.table.byId.setData({ id: activeTableId }, (prev) => {
+  const applyCellToCache = useCallback(
+    (recordId: string, cell: TableCell) => {
+      if (!recordsQueryInput) return;
+      utils.table.records.setInfiniteData(recordsQueryInput, (prev) => {
         if (!prev) return prev;
         return {
           ...prev,
-          records: prev.records.map((record) => {
-            if (record.id !== cell.recordId) return record;
-            const hasCell = record.cells.some(
-              (c) => c.id === cell.id || c.fieldId === cell.fieldId,
-            );
-            const cells = hasCell
-              ? record.cells.map((c) =>
-                  c.id === cell.id || c.fieldId === cell.fieldId
-                    ? { ...c, valueText: cell.valueText, valueNumber: cell.valueNumber }
-                    : c,
-                )
-              : [...record.cells, cell];
-            return { ...record, cells };
-          }),
+          pages: prev.pages.map((page) => ({
+            ...page,
+            records: page.records.map((record) => {
+              if (record.id !== recordId) return record;
+      const hasCell = record.cells.some((c) => c.fieldId === cell.fieldId);
+              const cells = hasCell
+                ? record.cells.map((c) =>
+                    c.fieldId === cell.fieldId ? { ...c, ...cell } : c,
+                  )
+                : [...record.cells, cell];
+              return { ...record, cells };
+            }),
+          })),
         };
       });
+    },
+    [recordsQueryInput, utils.table.records],
+  );
+
+  const updateCell = api.table.updateCell.useMutation({
+    onMutate: async (variables) => {
+      if (!recordsQueryInput) return { previous: undefined };
+      await utils.table.records.cancel(recordsQueryInput);
+      const previous = utils.table.records.getInfiniteData(recordsQueryInput);
+
+      const optimisticCell: TableCell = {
+        id: `temp-cell-${variables.recordId}-${variables.fieldId}`,
+        recordId: variables.recordId,
+        fieldId: variables.fieldId,
+        valueText: typeof variables.value === "number" ? null : (variables.value as string | null) ?? null,
+        valueNumber: typeof variables.value === "number" ? variables.value : null,
+      };
+      applyCellToCache(variables.recordId, optimisticCell);
+
+      return { previous };
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previous && recordsQueryInput) {
+        utils.table.records.setInfiniteData(recordsQueryInput, context.previous);
+      }
+    },
+    onSuccess: (cell) => {
+      applyCellToCache(cell.recordId, cell);
     },
   });
 
@@ -241,64 +338,13 @@ export default function BaseClient({
   });
 
   const addRecord = api.table.addRecord.useMutation({
-    onMutate: async ({ tableId }) => {
-      await utils.table.byId.cancel({ id: tableId });
-      const previous = utils.table.byId.getData({ id: tableId });
-      if (!previous) return { previous, tableId } satisfies AddRecordContext;
-
-      const optimisticRecord = makeEmptyRecord(previous.fields);
-
-      utils.table.byId.setData({ id: tableId }, { ...previous, records: [...previous.records, optimisticRecord] });
-
-      return { previous, tableId, optimisticId: optimisticRecord.id } satisfies AddRecordContext;
-    },
-    onError: (_err, _variables, context) => {
-      if (!context?.previous || !context.tableId) return;
-      utils.table.byId.setData({ id: context.tableId }, context.previous);
-      if (context.optimisticId) {
-        pendingRecordEdits.current.delete(context.optimisticId);
+    onSuccess: ({ record: _record }, { tableId }) => {
+      if (recordsQueryInput) {
+        void utils.table.records.invalidate(recordsQueryInput);
+      } else {
+        void utils.table.records.invalidate();
       }
-    },
-    onSuccess: ({ record }, _variables, context) => {
-      if (!context?.tableId) return;
-      utils.table.byId.setData({ id: context.tableId }, (prev: TableById | undefined) => {
-        if (!prev) return prev;
-        const optimisticId = context.optimisticId;
-        const hadOptimistic = Boolean(
-          optimisticId && prev.records.some((r) => r.id === optimisticId),
-        );
-
-        const recordsWithRealId = hadOptimistic
-          ? prev.records.map((r) =>
-              r.id === optimisticId
-                ? {
-                    ...r,
-                    id: record.id,
-                    cells: r.cells.map((cell) => ({ ...cell, recordId: record.id })),
-                  }
-                : r,
-            )
-          : prev.records;
-
-        const hasReal = recordsWithRealId.some((r) => r.id === record.id);
-        const fallbackRecord: TableRecord = {
-          id: record.id,
-          cells: prev.fields.map((field) => makeEmptyCell(record.id, field.id)),
-        };
-        const nextRecords = hasReal ? recordsWithRealId : [...recordsWithRealId, fallbackRecord];
-
-        return { ...prev, records: nextRecords };
-      });
-
-       if (context.optimisticId) {
-         const queued = pendingRecordEdits.current.get(context.optimisticId);
-         if (queued?.length) {
-           pendingRecordEdits.current.delete(context.optimisticId);
-           queued.forEach(({ fieldId, value }) => {
-             updateCell.mutate({ recordId: record.id, fieldId, value });
-           });
-         }
-       }
+      void utils.table.byId.invalidate({ id: tableId });
     },
   });
 
@@ -333,154 +379,28 @@ export default function BaseClient({
         }));
         return { ...prev, fields, records };
       });
+      if (recordsQueryInput) {
+        utils.table.records.invalidate(recordsQueryInput).catch(() => undefined);
+      } else {
+        utils.table.records.invalidate().catch(() => undefined);
+      }
     },
   });
 
   const deleteRecords = api.table.deleteRecords.useMutation({
-    onMutate: async ({ recordIds }) => {
-      if (!activeTableId) return { previous: undefined, tableId: undefined };
-      await utils.table.byId.cancel({ id: activeTableId });
-      const previous = utils.table.byId.getData({ id: activeTableId });
-      if (!previous) return { previous, tableId: activeTableId };
-
-      const records = previous.records.filter((r) => !recordIds.includes(r.id));
-      utils.table.byId.setData({ id: activeTableId }, { ...previous, records });
-
-      return { previous, tableId: activeTableId };
-    },
-    onError: (_err, _variables, context) => {
-      if (!context?.previous || !context.tableId) return;
-      utils.table.byId.setData({ id: context.tableId }, context.previous);
-    },
-    onSuccess: ({ recordIds, tableId }) => {
-      utils.table.byId.setData({ id: tableId }, (prev) =>
-        prev
-          ? {
-              ...prev,
-              records: prev.records.filter((r) => !recordIds.includes(r.id)),
-            }
-          : prev,
-      );
+    onSuccess: ({ tableId }) => {
+      if (recordsQueryInput) {
+        utils.table.records.invalidate(recordsQueryInput).catch(() => undefined);
+      } else {
+        utils.table.records.invalidate().catch(() => undefined);
+      }
+      utils.table.byId.invalidate({ id: tableId }).catch(() => undefined);
     },
   });
 
   const handleAddTable = () => {
     const nextIndex = tablesState.length + 1;
     createTable.mutate({ baseId, name: `Table ${nextIndex}` });
-  };
-
-  const applyFilters = (records: TableRecord[], fields: TableField[]) => {
-    if (!filters.conditions.length) return records;
-
-    const fieldLookup = fields.reduce<Record<string, TableField>>(
-      (acc, f) => ({ ...acc, [f.id]: f }),
-      {},
-    );
-
-    const checkCondition = (record: TableRecord, condition: FilterCondition) => {
-      const field = fieldLookup[condition.fieldId];
-      if (!field) return false;
-      const cell = record.cells.find((c) => c.fieldId === condition.fieldId);
-      const isNumber = field.type === "NUMBER";
-      if (isNumber) {
-        const numVal = (() => {
-          if (typeof cell?.valueNumber === "number") return cell.valueNumber;
-          const parsed = Number(cell?.valueText ?? "");
-          return Number.isNaN(parsed) ? null : parsed;
-        })();
-        const target = Number(condition.value ?? "");
-        const hasNumber = numVal !== null && !Number.isNaN(numVal);
-
-        switch (condition.operator) {
-          case "greater_than":
-            return hasNumber && !Number.isNaN(target) && numVal > target;
-          case "less_than":
-            return hasNumber && !Number.isNaN(target) && numVal < target;
-          case "greater_than_or_equal":
-            return hasNumber && !Number.isNaN(target) && numVal >= target;
-          case "less_than_or_equal":
-            return hasNumber && !Number.isNaN(target) && numVal <= target;
-          case "is":
-            return hasNumber && !Number.isNaN(target) && numVal === target;
-          case "is_not":
-            return hasNumber && !Number.isNaN(target) && numVal !== target;
-          case "is_empty":
-            return !hasNumber;
-          case "is_not_empty":
-            return hasNumber;
-          default:
-            return true;
-        }
-      }
-
-      const rawValue = cell?.valueText ?? cell?.valueNumber ?? null;
-      const value = rawValue == null ? "" : String(rawValue).toLowerCase();
-      const needle = (condition.value ?? "").toLowerCase();
-
-      switch (condition.operator) {
-        case "contains":
-          return value.includes(needle);
-        case "not_contains":
-          return !value.includes(needle);
-        case "is":
-          return value === needle;
-        case "is_not":
-          return value !== needle;
-        case "is_empty":
-          return value === "";
-        case "is_not_empty":
-          return value !== "";
-        default:
-          return true;
-      }
-    };
-
-    return records.filter((record) => {
-      const results = filters.conditions.map((cond) => checkCondition(record, cond));
-      return filters.connector === "and"
-        ? results.every(Boolean)
-        : results.some(Boolean);
-    });
-  };
-
-  const applySorts = (records: TableRecord[], fields: TableField[]) => {
-    if (!appliedSorts.length) return records;
-    const fieldLookup = fields.reduce<Record<string, TableField>>(
-      (acc, f) => ({ ...acc, [f.id]: f }),
-      {},
-    );
-    const sorted = [...records];
-    sorted.sort((a, b) => {
-      for (const sort of appliedSorts) {
-        const field = fieldLookup[sort.fieldId];
-        if (!field) continue;
-        const cellA = a.cells.find((c) => c.fieldId === sort.fieldId);
-        const cellB = b.cells.find((c) => c.fieldId === sort.fieldId);
-        const isNumber = field.type === "NUMBER";
-        const valA = isNumber
-          ? cellA?.valueNumber ?? Number(cellA?.valueText ?? NaN)
-          : (cellA?.valueText ?? cellA?.valueNumber ?? "") ?? "";
-        const valB = isNumber
-          ? cellB?.valueNumber ?? Number(cellB?.valueText ?? NaN)
-          : (cellB?.valueText ?? cellB?.valueNumber ?? "") ?? "";
-
-        let comp = 0;
-        if (isNumber) {
-          const aNum = typeof valA === "number" && !Number.isNaN(valA) ? valA : Number.NEGATIVE_INFINITY;
-          const bNum = typeof valB === "number" && !Number.isNaN(valB) ? valB : Number.NEGATIVE_INFINITY;
-          comp = aNum === bNum ? 0 : aNum < bNum ? -1 : 1;
-        } else {
-          const aStr = (valA ?? "").toString().toLowerCase();
-          const bStr = (valB ?? "").toString().toLowerCase();
-          comp = aStr.localeCompare(bStr);
-        }
-        if (comp !== 0) {
-          return sort.direction === "asc" ? comp : -comp;
-        }
-      }
-      return 0;
-    });
-    return sorted;
   };
 
   const handleDeleteTable = (id: string) => {
@@ -516,43 +436,12 @@ export default function BaseClient({
   const handleCellChange = (recordId: string, fieldId: string, value: string | number | null) => {
     if (!activeTableId) return;
 
-    const isOptimisticRecord = recordId.startsWith("temp-record");
-
-    utils.table.byId.setData({ id: activeTableId }, (prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        records: prev.records.map((record) =>
-          record.id === recordId
-            ? {
-                ...record,
-                cells: record.cells.map((cell) =>
-                  cell.fieldId === fieldId
-                    ? {
-                        ...cell,
-                        valueText: typeof value === "number" ? null : value ?? null,
-                        valueNumber: typeof value === "number" ? value : null,
-                      }
-                    : cell,
-                ),
-              }
-            : record,
-        ),
-      };
-    });
-
-    if (isOptimisticRecord) {
-      const existingEdits = pendingRecordEdits.current.get(recordId) ?? [];
-      pendingRecordEdits.current.set(recordId, [...existingEdits, { fieldId, value }]);
-      return;
-    }
-
     updateCell.mutate(
       { recordId, fieldId, value },
     );
   };
 
-  const [activeCellIndex, setActiveCellIndex] = useState<[number, number] | null>([0,0]);
+  const [activeCellIndex, setActiveCellIndex] = useState<[number, number] | null>(null);
 
   return (
     <div className="flex h-screen bg-[#f7f7fb]">
@@ -616,6 +505,14 @@ export default function BaseClient({
           hiddenFieldIds={hiddenFieldIds}
           filters={filters}
           sorts={{ items: sortUi.items, auto: sortUi.auto }}
+          onSeedRows={(count) => {
+            if (!activeTableId || seedRecords.isPending) return;
+            const target = count || 100_000;
+            setSeedRemaining(target);
+            const firstChunk = Math.min(target, 1_000);
+            seedRecords.mutate({ tableId: activeTableId, count: firstChunk, chunkSize: 1_000 });
+          }}
+          isSeedingRows={seedRecords.isPending || seedRemaining > 0}
           onToggleField={(fieldId) =>
             setHiddenFieldIds((prev) =>
               prev.includes(fieldId) ? prev.filter((id) => id !== fieldId) : [...prev, fieldId],
@@ -644,12 +541,13 @@ export default function BaseClient({
           <div className="flex flex-1 flex-col overflow-hidden">
             <BaseTable
               fields={tableQuery.data?.fields ?? []}
-              records={applySorts(
-                applyFilters(tableQuery.data?.records ?? [], tableQuery.data?.fields ?? []),
-                tableQuery.data?.fields ?? [],
-              )}
+              records={records}
               hiddenFieldIds={hiddenFieldIds}
-              isLoading={tableQuery.isLoading}
+              isLoading={tableQuery.isLoading || isRecordsLoading}
+              hasMore={hasMore}
+              isFetchingMore={isFetchingMore}
+              onLoadMore={handleLoadMore}
+              totalCount={totalCount}
               onCellChange={handleCellChange}
               onAddColumn={(type = "TEXT", name) => {
                 if (!activeTableId || addField.isPending) return;

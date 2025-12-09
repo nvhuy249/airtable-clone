@@ -31,6 +31,8 @@ interface TableToolbarProps {
   onFiltersChange: (filters: { connector: "and" | "or"; conditions: Condition[] }) => void;
   sorts: SortState;
   onSortsChange: (state: SortState, commit?: boolean) => void;
+  onSeedRows?: (count: number) => void;
+  isSeedingRows?: boolean;
 }
 
 type Operator =
@@ -71,6 +73,8 @@ export default function TableToolbar({
   onFiltersChange,
   sorts,
   onSortsChange,
+  onSeedRows,
+  isSeedingRows,
 }: TableToolbarProps) {
   const [open, setOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -173,8 +177,10 @@ export default function TableToolbar({
         <button
           type="button"
           className="inline-flex items-center gap-1 hover:text-gray-900 font-semibold"
+          disabled={isSeedingRows}
+          onClick={() => onSeedRows?.(100_000)}
         >
-          Add 100k Row
+          {isSeedingRows ? "Seeding..." : "Add 100k rows"}
         </button>
         <button
           ref={triggerRef}

@@ -7,7 +7,7 @@ import {
   type CellContext,
   type ColumnDef,
 } from "@tanstack/react-table";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
 import { FiChevronDown, FiCircle, FiPaperclip, FiPlus, FiType, FiUser } from "react-icons/fi";
 import type React from "react";
 
@@ -36,6 +36,8 @@ type ColumnValue = string | number | null | undefined;
 type RowData = Record<string, ColumnValue> & { __recordId: string };
 
 const displayValue = (value: ColumnValue) => (value == null ? "" : String(value));
+const VIRTUAL_ROW_HEIGHT = 40;
+const VIRTUAL_OVERSCAN = 8;
 
 const readCellValue = (field: FieldShape, cell?: CellShape | null): ColumnValue => {
   if (!cell) return null;
@@ -99,6 +101,10 @@ interface BaseTableProps {
   records: RecordShape[];
   hiddenFieldIds?: string[];
   isLoading?: boolean;
+  hasMore?: boolean;
+  isFetchingMore?: boolean;
+  onLoadMore?: () => void;
+  totalCount?: number;
   onAddColumn?: (type?: FieldType, name?: string) => void;
   onRenameColumn?: (fieldId: string, name: string) => void;
   onAddRow?: () => void;
@@ -156,6 +162,10 @@ export default function BaseTable({
   records,
   hiddenFieldIds = [],
   isLoading,
+  hasMore = false,
+  isFetchingMore = false,
+  onLoadMore,
+  totalCount,
   onAddColumn,
   onRenameColumn,
   onAddRow,
@@ -193,21 +203,59 @@ export default function BaseTable({
   const [renamingValue, setRenamingValue] = useState("");
   const [renameAnchor, setRenameAnchor] = useState<{ top: number; left: number; width: number } | null>(null);
   const tableWrapperRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const skipRefocusRef = useRef(false);
   const hoveredRowRef = useRef<number | null>(null);
   const selectedRowsRef = useRef<Set<string>>(new Set());
   const activeCellRef = useRef<typeof activeCell>(null);
   const addFieldButtonRef = useRef<HTMLButtonElement | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const addFieldNameInputRef = useRef<HTMLInputElement | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const appliedFieldsRef = useRef<FieldShape[]>(DEFAULT_FIELDS);
   const appliedRecordsRef = useRef<RecordShape[]>(DEFAULT_RECORDS);
+  const lastScrollTopRef = useRef<number>(0);
+  const prevRecordCountRef = useRef<number>(DEFAULT_RECORDS.length);
+  const prevScrollHeightRef = useRef<number>(0);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const hiddenSet = useMemo(() => new Set(hiddenFieldIds), [hiddenFieldIds]);
+  const [scrollState, setScrollState] = useState<{ scrollTop: number; viewportHeight: number }>({
+    scrollTop: 0,
+    viewportHeight: 0,
+  });
 
   useEffect(() => {
     const close = () => setContextMenu(null);
     window.addEventListener("click", close);
     return () => window.removeEventListener("click", close);
+  }, []);
+
+  const openContextMenu = useCallback(
+    (clientX: number, clientY: number, recordId: string) => {
+      const padding = 8;
+      const menuWidth = 320;
+      const menuHeight = 420;
+      const maxX = Math.max(padding, window.innerWidth - menuWidth - padding);
+      const maxY = Math.max(padding, window.innerHeight - menuHeight - padding);
+      const x = Math.min(Math.max(clientX, padding), maxX);
+      const y = Math.min(Math.max(clientY, padding), maxY);
+      setContextMenu({ x, y, recordId });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const node = scrollContainerRef.current;
+    if (!node) return;
+    const update = () =>
+      setScrollState({
+        scrollTop: node.scrollTop,
+        viewportHeight: node.clientHeight || 0,
+      });
+    update();
+    const resizeObserver = new ResizeObserver(update);
+    resizeObserver.observe(node);
+    return () => resizeObserver.disconnect();
   }, []);
 
   useEffect(() => {
@@ -329,6 +377,7 @@ export default function BaseTable({
     setLocalRecords(useRecords);
     setColumnOrder(useFields.map((f) => f.id));
     setData(buildRows(useFields, useRecords));
+    prevRecordCountRef.current = useRecords.length;
     setSelectedRows(new Set());
     setContextMenu(null);
     // Keep add-field name input focused if open
@@ -350,16 +399,66 @@ export default function BaseTable({
       setRenamingValue("");
       setRenameAnchor(null);
     }
+
   }, [fields, records, pendingFieldType, renamingFieldId]);
+
+  useLayoutEffect(() => {
+    const node = scrollContainerRef.current;
+    if (!node) return;
+    const prevHeight = prevScrollHeightRef.current || node.scrollHeight;
+    const newHeight = node.scrollHeight;
+    const restoreTop = lastScrollTopRef.current ?? node.scrollTop;
+    if (restoreTop !== node.scrollTop) {
+      node.scrollTop = restoreTop;
+    }
+    prevScrollHeightRef.current = newHeight || prevHeight;
+  }, [records.length]);
+
+  useEffect(() => {
+    if (!onLoadMore) return;
+    const target = loadMoreRef.current;
+    if (!target) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry?.isIntersecting && hasMore && !isFetchingMore) {
+          onLoadMore();
+        }
+      },
+      {
+        root: scrollContainerRef.current ?? null,
+        rootMargin: "0px 0px 200px 0px",
+      },
+    );
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [hasMore, isFetchingMore, onLoadMore]);
   hoveredRowRef.current = hoveredRow;
   selectedRowsRef.current = selectedRows;
   activeCellRef.current = activeCell;
-  const computeAddFieldAnchor = useCallback(() => {
-    const button = addFieldButtonRef.current;
-    if (!button) return null;
-    const rect = button.getBoundingClientRect();
-    return { top: rect.bottom + 6, left: rect.left };
-  }, []);
+  const computeAddFieldAnchor = useCallback(
+    (options?: { height?: number; width?: number }) => {
+      const button = addFieldButtonRef.current;
+      if (!button) return null;
+      const rect = button.getBoundingClientRect();
+      const viewportPadding = 8;
+      const menuHeight = options?.height ?? 220;
+      const menuWidth = options?.width ?? 240;
+      const maxTop = Math.max(viewportPadding, window.innerHeight - menuHeight - viewportPadding);
+      const maxLeft = Math.max(viewportPadding, window.innerWidth - menuWidth - viewportPadding);
+      const top = Math.min(rect.bottom + 6, maxTop);
+      const left = Math.min(rect.left, maxLeft);
+      return { top, left };
+    },
+    [],
+  );
+  useEffect(() => {
+    if (!pendingFieldType) return;
+    const anchor = computeAddFieldAnchor({ height: 260, width: 260 });
+    if (anchor) setAddFieldAnchor(anchor);
+  }, [computeAddFieldAnchor, pendingFieldType]);
   const addRow = useCallback(() => {
     if (onAddRow) {
       setAddFieldMenuOpen(false);
@@ -526,7 +625,7 @@ export default function BaseTable({
     if (!next) return;
     if (document.activeElement === next) return;
     next.focus();
-  }, [activeCell, data, visibleColumnOrder]);
+  }, [activeCell, visibleColumnOrder]);
 
   const getCanonicalValue = useCallback(
     (recordId: string, fieldId: string): string | number | null => {
@@ -631,12 +730,6 @@ export default function BaseTable({
           if (document.activeElement === input) return;
           input.focus();
         }, [isActive, editValue]);
-
-        useEffect(() => {
-          if (process.env.NODE_ENV === "production") return;
-          console.log("editable cell mount", { key, rowIndex, colIndex, recordId });
-          return () => console.log("editable cell unmount", { key, rowIndex, colIndex, recordId });
-        }, [rowIndex, colIndex, recordId]);
 
         useEffect(() => {
           setEditValue(cellValue == null ? "" : String(cellValue));
@@ -932,11 +1025,7 @@ export default function BaseTable({
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setSelectedRows(new Set([recordId]));
-                  setContextMenu({
-                    x: e.clientX,
-                    y: e.clientY,
-                    recordId,
-                  });
+                  openContextMenu(e.clientX, e.clientY, recordId);
                 }}
               />
             ) : (
@@ -955,7 +1044,7 @@ export default function BaseTable({
           <button
             ref={addFieldButtonRef}
             onClick={() => {
-              const anchor = computeAddFieldAnchor();
+              const anchor = computeAddFieldAnchor({ height: 180, width: 180 });
               if (anchor) setAddFieldAnchor(anchor);
               setPendingFieldType(null);
               setPendingFieldName("");
@@ -984,6 +1073,7 @@ export default function BaseTable({
     handleCellNavigation,
     _onActiveCellIndexChange,
     computeAddFieldAnchor,
+    openContextMenu,
     data.length,
   ]);
 
@@ -993,6 +1083,18 @@ export default function BaseTable({
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
+  const tableRows = table.getRowModel().rows;
+  const totalRows = tableRows.length;
+  const startIndex = Math.max(
+    0,
+    Math.floor(scrollState.scrollTop / VIRTUAL_ROW_HEIGHT) - VIRTUAL_OVERSCAN,
+  );
+  const visibleCount =
+    Math.ceil(scrollState.viewportHeight / VIRTUAL_ROW_HEIGHT) + VIRTUAL_OVERSCAN * 2;
+  const endIndex = Math.min(totalRows, startIndex + visibleCount);
+  const visibleRows = tableRows.slice(startIndex, endIndex);
+  const topSpacerHeight = Math.max(startIndex * VIRTUAL_ROW_HEIGHT, 0);
+  const bottomSpacerHeight = Math.max(totalRows - endIndex, 0) * VIRTUAL_ROW_HEIGHT;
 
   const widthClass = (columnId: string) => {
     const isRowNumber = columnId === "rowNumber";
@@ -1005,17 +1107,52 @@ export default function BaseTable({
   };
 
   const closeHeaderMenu = () => setHeaderMenu(null);
-
   const targetRecordIds: string[] = useMemo(() => {
     if (selectedRecordIds.length) return selectedRecordIds;
     if (contextMenu?.recordId) return [contextMenu.recordId];
     return [];
   }, [contextMenu, selectedRecordIds]);
 
+  useLayoutEffect(() => {
+    if (!contextMenu || !menuRef.current) return;
+    const rect = menuRef.current.getBoundingClientRect();
+    const padding = 8;
+    const overflowRight = rect.right - window.innerWidth + padding;
+    const overflowBottom = rect.bottom - window.innerHeight + padding;
+    let nextX = contextMenu.x;
+    let nextY = contextMenu.y;
+    if (overflowRight > 0) {
+      nextX = Math.max(padding, contextMenu.x - overflowRight);
+    }
+    if (overflowBottom > 0) {
+      nextY = Math.max(padding, contextMenu.y - overflowBottom);
+    }
+    if (nextX !== contextMenu.x || nextY !== contextMenu.y) {
+      setContextMenu({ ...contextMenu, x: nextX, y: nextY });
+    }
+  }, [contextMenu]);
+
+  const loadedCount = data.length;
+  const statusText = isLoading
+    ? "Loading records..."
+    : hasMore
+      ? `Loaded ${loadedCount}${totalCount ? ` of ${totalCount}` : ""}`
+      : `Showing ${loadedCount}${totalCount ? ` of ${totalCount}` : ""}`;
+
   return (
     <div className="flex flex-col h-full w-full overflow-hidden" ref={tableWrapperRef}>
       {/* ACTUAL TABLE */}
-      <div className="flex-1 overflow-auto bg-white border-t border-gray-300">
+      <div
+        className="flex-1 overflow-auto bg-white border-t border-gray-300"
+        ref={scrollContainerRef}
+        onScroll={(e) => {
+          lastScrollTopRef.current = e.currentTarget.scrollTop;
+          setScrollState({
+            scrollTop: e.currentTarget.scrollTop,
+            viewportHeight: e.currentTarget.clientHeight || 0,
+          });
+        }}
+      >
         <table className="table-auto border-separate border-spacing-0 text-sm">
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (
@@ -1092,7 +1229,12 @@ export default function BaseTable({
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.map((row) => {
+            {topSpacerHeight > 0 && (
+              <tr aria-hidden="true">
+                <td colSpan={table.getVisibleLeafColumns().length} style={{ height: topSpacerHeight }} className="p-0 border-0" />
+              </tr>
+            )}
+            {visibleRows.map((row) => {
               const rowHovered = hoveredRow === row.index;
               const recordId = row.original.__recordId;
               const isSelected = selectedRows.has(recordId);
@@ -1102,13 +1244,14 @@ export default function BaseTable({
                   className={`${rowHovered ? "bg-[#f1f3f7]" : "bg-white even:bg-[#fbfbfe]"} ${isSelected ? "border border-blue-50" : ""}`}
                   onMouseEnter={() => setHoveredRow(row.index)}
                   onMouseLeave={() => setHoveredRow(null)}
+                  style={{ height: VIRTUAL_ROW_HEIGHT }}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <td
                       key={cell.id}
                       className={`border-b border-r border-gray-200 align-middle ${widthClass(cell.column.id)}`}
                     >
-                  <div className="px-1 py-[2px] text-sm hover:bg-[#f5f6fa]">
+                      <div className="px-1 py-[2px] text-sm hover:bg-[#f5f6fa]">
                         {flexRender(
                           cell.column.columnDef.cell,
                           cell.getContext(),
@@ -1119,6 +1262,28 @@ export default function BaseTable({
                 </tr>
               );
             })}
+            {(hasMore || isFetchingMore) && (
+              <tr>
+                <td colSpan={table.getVisibleLeafColumns().length} className="p-0 border-0">
+                  <div
+                    className="relative w-full"
+                    style={{ height: Math.max(bottomSpacerHeight, 24) }}
+                  >
+                    <div
+                      ref={loadMoreRef}
+                      className="absolute inset-x-0 bottom-0 px-3 py-3 text-center text-xs text-gray-600"
+                    >
+                      {isFetchingMore ? "Loading more records…" : "Scroll to load more records"}
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            )}
+            {bottomSpacerHeight > 0 && !hasMore && (
+              <tr aria-hidden="true">
+                <td colSpan={table.getVisibleLeafColumns().length} style={{ height: bottomSpacerHeight }} className="p-0 border-0" />
+              </tr>
+            )}
             <tr className="bg-white">
               {table.getVisibleLeafColumns().map((column) => (
                 <td
@@ -1150,7 +1315,7 @@ export default function BaseTable({
         flex items-center justify-between
         px-5 py-3 text-xs border-t border-gray-300 bg-white text-gray-600">
         <div>
-          {isLoading ? "Loading records..." : `${data.length} records`}
+          {statusText}
         </div>
       </div>
 
@@ -1168,7 +1333,7 @@ export default function BaseTable({
               e.preventDefault();
               e.stopPropagation();
               setAddFieldMenuOpen(false);
-              const anchor = computeAddFieldAnchor();
+              const anchor = computeAddFieldAnchor({ height: 180, width: 180 });
               if (anchor) setAddFieldAnchor(anchor);
               setPendingFieldType("TEXT");
               setPendingFieldName("");
@@ -1183,7 +1348,7 @@ export default function BaseTable({
               e.preventDefault();
               e.stopPropagation();
               setAddFieldMenuOpen(false);
-              const anchor = computeAddFieldAnchor();
+              const anchor = computeAddFieldAnchor({ height: 180, width: 180 });
               if (anchor) setAddFieldAnchor(anchor);
               setPendingFieldType("NUMBER");
               setPendingFieldName("");
@@ -1197,7 +1362,7 @@ export default function BaseTable({
       {pendingFieldType && addFieldAnchor && (
         <div
           data-add-field-name="true"
-          className="fixed z-50 w-60 rounded-lg border border-gray-200 bg-white shadow-lg text-sm text-gray-800"
+              className="fixed z-50 w-60 rounded-lg border border-gray-200 bg-white shadow-lg text-sm text-gray-800"
           style={{ top: addFieldAnchor.top, left: addFieldAnchor.left }}
         >
           <div className="px-3 py-2 border-b text-gray-700 font-medium">
@@ -1312,7 +1477,8 @@ export default function BaseTable({
 
       {contextMenu && (
         <div
-          className="fixed z-50 w-64 rounded-lg border border-gray-200 bg-white shadow-lg text-sm text-gray-800"
+          ref={menuRef}
+          className="fixed z-50 w-72 max-h-[80vh] overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg text-sm text-gray-800"
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={(e) => e.stopPropagation()}
         >
