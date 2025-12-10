@@ -131,12 +131,16 @@ export const baseRouter = createTRPCRouter({
               select: { id: true },
             });
 
+            const BATCH = 30000;
             const recordIdList = recordIds.map((r) => r.id);
             const fieldIdList = fieldIds.map((f) => f.id);
 
             if (recordIdList.length) {
-              await tx.cell.deleteMany({ where: { recordId: { in: recordIdList } } });
-              await tx.record.deleteMany({ where: { id: { in: recordIdList } } });
+              for (let i = 0; i < recordIdList.length; i += BATCH) {
+                const slice = recordIdList.slice(i, i + BATCH);
+                await tx.cell.deleteMany({ where: { recordId: { in: slice } } });
+                await tx.record.deleteMany({ where: { id: { in: slice } } });
+              }
             }
 
             if (fieldIdList.length) {

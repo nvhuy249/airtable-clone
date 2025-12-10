@@ -137,15 +137,38 @@ export default function BaseClient({
   const fetchNextPage = recordsQuery.fetchNextPage;
   const [seedRemaining, setSeedRemaining] = useState<number>(0);
 
+  const [seedRefetchedOnce, setSeedRefetchedOnce] = useState(false);
+
   const seedRecords = api.table.seedRecords.useMutation({
     onSuccess: (result) => {
-      setSeedRemaining((prev) => Math.max(prev - (result?.inserted ?? 0), 0));
-      if (recordsQueryInput) {
-        void utils.table.records.invalidate(recordsQueryInput);
-      } else {
-        void utils.table.records.invalidate();
+      const inserted = result?.inserted ?? 0;
+      let nextRemaining = 0;
+      setSeedRemaining((prev) => {
+        nextRemaining = Math.max(prev - inserted, 0);
+        return nextRemaining;
+      });
+
+      // Refresh once early so pagination picks up new nextCursor when we just created a lot of rows.
+      if (!seedRefetchedOnce && nextRemaining > 0) {
+        if (recordsQueryInput) {
+          void utils.table.records.invalidate(recordsQueryInput);
+        } else {
+          void utils.table.records.invalidate();
+        }
+        setSeedRefetchedOnce(true);
       }
-      void utils.table.byId.invalidate({ id: activeTableId });
+
+      if (nextRemaining === 0) {
+        if (recordsQueryInput) {
+          void utils.table.records.invalidate(recordsQueryInput);
+        } else {
+          void utils.table.records.invalidate();
+        }
+        if (activeTableId) {
+          void utils.table.byId.invalidate({ id: activeTableId });
+        }
+        setSeedRefetchedOnce(false);
+      }
     },
   });
 

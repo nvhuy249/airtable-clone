@@ -7,6 +7,13 @@ import {
   type CellContext,
   type ColumnDef,
 } from "@tanstack/react-table";
+import {
+  Virtualizer,
+  elementScroll,
+  observeElementOffset,
+  observeElementRect,
+  type VirtualizerOptions,
+} from "@tanstack/virtual-core";
 import { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
 import { FiChevronDown, FiCircle, FiPaperclip, FiPlus, FiType, FiUser } from "react-icons/fi";
 import type React from "react";
@@ -33,11 +40,69 @@ type RecordShape = {
 };
 
 type ColumnValue = string | number | null | undefined;
-type RowData = Record<string, ColumnValue> & { __recordId: string };
+type RowData = Record<string, ColumnValue> & { __recordId: string; __rowIndex: number };
 
 const displayValue = (value: ColumnValue) => (value == null ? "" : String(value));
-const VIRTUAL_ROW_HEIGHT = 40;
+const VIRTUAL_ROW_HEIGHT = 42;
 const VIRTUAL_OVERSCAN = 8;
+
+const useIsomorphicLayoutEffect = typeof document !== "undefined" ? useLayoutEffect : useEffect;
+
+function useVirtualizerSafe<TScrollElement extends Element, TItemElement extends Element>(
+  options: VirtualizerOptions<TScrollElement, TItemElement>,
+) {
+  const [, force] = useState(0);
+  const stableOnChange = useCallback(
+    (instance: Virtualizer<TScrollElement, TItemElement>) => {
+      force((v) => v + 1);
+      options.onChange?.(instance, false);
+    },
+    [
+      options.onChange,
+    ],
+  );
+
+  const resolvedOptions = useMemo(
+    () => ({
+      ...options,
+      onChange: stableOnChange,
+    }),
+    [
+      options.count,
+      options.overscan,
+      options.enabled,
+      options.getScrollElement,
+      options.measureElement,
+      options.scrollToFn,
+      options.observeElementRect,
+      options.observeElementOffset,
+      options.rangeExtractor,
+      options.initialOffset,
+      options.estimateSize,
+      stableOnChange,
+    ],
+  );
+
+  const instanceRef = useRef<Virtualizer<TScrollElement, TItemElement> | null>(null);
+  const prevOptionsRef = useRef<typeof resolvedOptions | null>(null);
+
+  if (!instanceRef.current) {
+    instanceRef.current = new Virtualizer<TScrollElement, TItemElement>(resolvedOptions);
+    prevOptionsRef.current = resolvedOptions;
+  }
+
+  useIsomorphicLayoutEffect(() => instanceRef.current?._didMount(), []);
+
+  useIsomorphicLayoutEffect(() => {
+    if (prevOptionsRef.current !== resolvedOptions) {
+      instanceRef.current?.setOptions(resolvedOptions);
+      prevOptionsRef.current = resolvedOptions;
+    }
+    instanceRef.current?._willUpdate();
+  }, [resolvedOptions]);
+
+  return instanceRef.current!;
+}
 
 const readCellValue = (field: FieldShape, cell?: CellShape | null): ColumnValue => {
   if (!cell) return null;
@@ -65,7 +130,7 @@ const valuesEqual = (a: string | number | null, b: string | number | null) => {
   return String(a) === String(b);
 };
 
-const fieldsEqual = (a: FieldShape[], b: FieldShape[]) =>
+const shallowFieldsEqual = (a: FieldShape[], b: FieldShape[]) =>
   a.length === b.length &&
   a.every((field, idx) => {
     const other = b[idx];
@@ -76,24 +141,6 @@ const fieldsEqual = (a: FieldShape[], b: FieldShape[]) =>
       field.type === other.type &&
       field.order === other.order
     );
-  });
-
-const recordsEqual = (a: RecordShape[], b: RecordShape[]) =>
-  a.length === b.length &&
-  a.every((record, idx) => {
-    const other = b[idx];
-    if (!other || record.id !== other.id || record.cells.length !== other.cells.length) {
-      return false;
-    }
-    return record.cells.every((cell, cellIdx) => {
-      const otherCell = other.cells[cellIdx];
-      return (
-        otherCell &&
-        cell.fieldId === otherCell.fieldId &&
-        cell.valueText === otherCell.valueText &&
-        cell.valueNumber === otherCell.valueNumber
-      );
-    });
   });
 
 interface BaseTableProps {
@@ -125,10 +172,10 @@ const DEFAULT_RECORDS: RecordShape[] = Array.from({ length: DEFAULT_RECORD_COUNT
   cells: [],
 }));
 
-function buildRows(fields: FieldShape[], records: RecordShape[]): RowData[] {
+function buildRows(fields: FieldShape[], records: RecordShape[], startIndex = 0): RowData[] {
   const sortedFields = [...fields].sort((a, b) => a.order - b.order);
-  return records.map((record) => {
-    const row: RowData = { __recordId: record.id };
+  return records.map((record, idx) => {
+    const row: RowData = { __recordId: record.id, __rowIndex: startIndex + idx };
     sortedFields.forEach((field) => {
       const cell = record.cells.find((c) => c.fieldId === field.id);
       const value = readCellValue(field, cell);
@@ -139,7 +186,7 @@ function buildRows(fields: FieldShape[], records: RecordShape[]): RowData[] {
 }
 
 function createEmptyRow(fields: FieldShape[]): RowData {
-  const row: RowData = { __recordId: `temp-${Date.now()}` };
+  const row: RowData = { __recordId: `temp-${Date.now()}`, __rowIndex: -1 };
   fields.forEach((f) => {
     row[f.id] = "";
   });
@@ -216,19 +263,27 @@ export default function BaseTable({
   const appliedRecordsRef = useRef<RecordShape[]>(DEFAULT_RECORDS);
   const lastScrollTopRef = useRef<number>(0);
   const prevRecordCountRef = useRef<number>(DEFAULT_RECORDS.length);
-  const prevScrollHeightRef = useRef<number>(0);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const hiddenSet = useMemo(() => new Set(hiddenFieldIds), [hiddenFieldIds]);
-  const [scrollState, setScrollState] = useState<{ scrollTop: number; viewportHeight: number }>({
-    scrollTop: 0,
-    viewportHeight: 0,
-  });
-
-  useEffect(() => {
-    const close = () => setContextMenu(null);
-    window.addEventListener("click", close);
-    return () => window.removeEventListener("click", close);
+  const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    if (scrollContainerRef.current) {
+      setScrollElement(scrollContainerRef.current);
+    }
   }, []);
+  useEffect(() => {
+    const node = scrollContainerRef.current;
+    if (!node) return;
+    const handleWheel = (e: WheelEvent) => {
+      if (!e.cancelable) return;
+      e.preventDefault();
+      node.scrollBy({ top: e.deltaY * 0.25, behavior: "auto" });
+    };
+    node.addEventListener("wheel", handleWheel, { passive: false });
+    return () => node.removeEventListener("wheel", handleWheel);
+  }, []);
+  const getScrollElement = useCallback(() => scrollElement, [scrollElement]);
+  const estimateSize = useCallback(() => VIRTUAL_ROW_HEIGHT, []);
 
   const openContextMenu = useCallback(
     (clientX: number, clientY: number, recordId: string) => {
@@ -243,20 +298,6 @@ export default function BaseTable({
     },
     [],
   );
-
-  useEffect(() => {
-    const node = scrollContainerRef.current;
-    if (!node) return;
-    const update = () =>
-      setScrollState({
-        scrollTop: node.scrollTop,
-        viewportHeight: node.clientHeight || 0,
-      });
-    update();
-    const resizeObserver = new ResizeObserver(update);
-    resizeObserver.observe(node);
-    return () => resizeObserver.disconnect();
-  }, []);
 
   useEffect(() => {
     if (pendingFieldType && addFieldNameInputRef.current) {
@@ -276,25 +317,6 @@ export default function BaseTable({
       renameInputRef.current.value.length,
     );
   }, [renamingFieldId]);
-
-  useEffect(() => {
-    console.log("BaseTable hydrated");
-  }, []);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (process.env.NODE_ENV !== "production") {
-        console.log("window keydown", {
-          key: e.key,
-          target: (e.target as HTMLElement | null)?.tagName,
-          active: document.activeElement?.tagName,
-          defaultPrevented: e.defaultPrevented,
-        });
-      }
-    };
-    window.addEventListener("keydown", handler, true);
-    return () => window.removeEventListener("keydown", handler, true);
-  }, []);
 
   useEffect(() => {
     if (!_activeCellIndex) return;
@@ -353,88 +375,71 @@ export default function BaseTable({
   }, [addFieldMenuOpen, pendingFieldType, _onActiveCellIndexChange, renamingFieldId]);
 
   useEffect(() => {
-    const useFields = (fields ?? DEFAULT_FIELDS).sort((a, b) => a.order - b.order);
+    const useFields = [...(fields ?? DEFAULT_FIELDS)].sort((a, b) => a.order - b.order);
     const useRecords = records ?? DEFAULT_RECORDS;
 
-    const sameFields = fieldsEqual(appliedFieldsRef.current, useFields);
-    const sameRecords = recordsEqual(appliedRecordsRef.current, useRecords);
+    const fieldsChanged = !shallowFieldsEqual(appliedFieldsRef.current, useFields);
+    const recordsChanged =
+      appliedRecordsRef.current.length !== useRecords.length ||
+      appliedRecordsRef.current.some((record, idx) => record !== useRecords[idx]);
 
-    if (sameFields && sameRecords) return;
+    // Bail early if nothing material changed to avoid render loops.
+    if (!fieldsChanged && !recordsChanged) return;
 
-    if (process.env.NODE_ENV !== "production") {
-      console.log("syncing table props -> local state", {
-        fieldsChanged: !sameFields,
-        recordsChanged: !sameRecords,
-        fieldsCount: useFields.length,
-        recordsCount: useRecords.length,
-      });
-    }
+    const prevRecords = appliedRecordsRef.current;
+    const prevCount = prevRecordCountRef.current ?? 0;
+
+    const isAppend =
+      !fieldsChanged &&
+      prevRecords.length === prevCount &&
+      useRecords.length > prevCount &&
+      prevRecords.every((record, idx) => record === useRecords[idx]);
 
     appliedFieldsRef.current = useFields;
     appliedRecordsRef.current = useRecords;
 
-    setLocalFields(useFields);
-    setLocalRecords(useRecords);
-    setColumnOrder(useFields.map((f) => f.id));
-    setData(buildRows(useFields, useRecords));
-    prevRecordCountRef.current = useRecords.length;
-    setSelectedRows(new Set());
-    setContextMenu(null);
-    // Keep add-field name input focused if open
-    if (pendingFieldType && addFieldNameInputRef.current) {
-      addFieldNameInputRef.current.focus();
-      addFieldNameInputRef.current.setSelectionRange(
-        addFieldNameInputRef.current.value.length,
-        addFieldNameInputRef.current.value.length,
-      );
-    }
-    setActiveCell((prev) => {
-      if (!prev) return prev;
-      const columnStillExists = useFields.some((f) => f.id === prev.colId);
-      const rowStillExists = prev.rowIndex >= 0 && prev.rowIndex < useRecords.length;
-      return columnStillExists && rowStillExists ? prev : null;
-    });
-    if (renamingFieldId && !useFields.some((f) => f.id === renamingFieldId)) {
-      setRenamingFieldId(null);
-      setRenamingValue("");
-      setRenameAnchor(null);
+    // Full rebuild when fields change, records shrink/replace, or no append path.
+    const doFullRebuild = fieldsChanged || !isAppend;
+    if (doFullRebuild) {
+      setLocalFields(useFields);
+      setLocalRecords(useRecords);
+      setColumnOrder(useFields.map((f) => f.id));
+      setData(buildRows(useFields, useRecords));
+      prevRecordCountRef.current = useRecords.length;
+      lastScrollTopRef.current = 0;
+      setSelectedRows(new Set());
+      setContextMenu(null);
+      // Keep add-field name input focused if open
+      if (pendingFieldType && addFieldNameInputRef.current) {
+        addFieldNameInputRef.current.focus();
+        addFieldNameInputRef.current.setSelectionRange(
+          addFieldNameInputRef.current.value.length,
+          addFieldNameInputRef.current.value.length,
+        );
+      }
+      setActiveCell((prev) => {
+        if (!prev) return prev;
+        const columnStillExists = useFields.some((f) => f.id === prev.colId);
+        const rowStillExists = prev.rowIndex >= 0 && prev.rowIndex < useRecords.length;
+        return columnStillExists && rowStillExists ? prev : null;
+      });
+      if (renamingFieldId && !useFields.some((f) => f.id === renamingFieldId)) {
+        setRenamingFieldId(null);
+        setRenamingValue("");
+        setRenameAnchor(null);
+      }
+      return;
     }
 
+    // Append-only path: only build the new rows to avoid re-processing all data.
+    const newRecords = useRecords.slice(prevCount);
+    if (!newRecords.length) return;
+
+    setLocalRecords((prev) => [...prev, ...newRecords]);
+    setData((prev) => [...prev, ...buildRows(useFields, newRecords, prevCount)]);
+    prevRecordCountRef.current = useRecords.length;
   }, [fields, records, pendingFieldType, renamingFieldId]);
 
-  useLayoutEffect(() => {
-    const node = scrollContainerRef.current;
-    if (!node) return;
-    const prevHeight = prevScrollHeightRef.current || node.scrollHeight;
-    const newHeight = node.scrollHeight;
-    const restoreTop = lastScrollTopRef.current ?? node.scrollTop;
-    if (restoreTop !== node.scrollTop) {
-      node.scrollTop = restoreTop;
-    }
-    prevScrollHeightRef.current = newHeight || prevHeight;
-  }, [records.length]);
-
-  useEffect(() => {
-    if (!onLoadMore) return;
-    const target = loadMoreRef.current;
-    if (!target) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        if (entry?.isIntersecting && hasMore && !isFetchingMore) {
-          onLoadMore();
-        }
-      },
-      {
-        root: scrollContainerRef.current ?? null,
-        rootMargin: "0px 0px 200px 0px",
-      },
-    );
-
-    observer.observe(target);
-    return () => observer.disconnect();
-  }, [hasMore, isFetchingMore, onLoadMore]);
   hoveredRowRef.current = hoveredRow;
   selectedRowsRef.current = selectedRows;
   activeCellRef.current = activeCell;
@@ -459,6 +464,15 @@ export default function BaseTable({
     const anchor = computeAddFieldAnchor({ height: 260, width: 260 });
     if (anchor) setAddFieldAnchor(anchor);
   }, [computeAddFieldAnchor, pendingFieldType]);
+  const maybeLoadMore = useCallback(() => {
+    if (!onLoadMore || !hasMore || isFetchingMore) return;
+    const node = scrollContainerRef.current;
+    if (!node) return;
+    const distanceFromBottom = node.scrollHeight - (node.scrollTop + node.clientHeight);
+    if (distanceFromBottom <= VIRTUAL_ROW_HEIGHT * 4) {
+      onLoadMore();
+    }
+  }, [hasMore, isFetchingMore, onLoadMore]);
   const addRow = useCallback(() => {
     if (onAddRow) {
       setAddFieldMenuOpen(false);
@@ -593,32 +607,6 @@ export default function BaseTable({
   );
 
   useEffect(() => {
-    if (process.env.NODE_ENV === "production") return;
-    console.log("activeCell changed", activeCell);
-  }, [activeCell]);
-
-  useEffect(() => {
-    if (process.env.NODE_ENV === "production") return;
-    const handler = (e: FocusEvent) => {
-      console.log(
-        `[focus ${e.type}]`,
-        { tag: (e.target as HTMLElement | null)?.tagName, id: (e.target as HTMLElement | null)?.id },
-        "activeElement:",
-        {
-          tag: (document.activeElement as HTMLElement | null)?.tagName,
-          id: (document.activeElement as HTMLElement | null)?.id,
-        },
-      );
-    };
-    window.addEventListener("focusin", handler, true);
-    window.addEventListener("focusout", handler, true);
-    return () => {
-      window.removeEventListener("focusin", handler, true);
-      window.removeEventListener("focusout", handler, true);
-    };
-  }, []);
-
-  useEffect(() => {
     if (!activeCell) return;
     const selector = `input[data-row-index="${activeCell.rowIndex}"][data-col-id="${activeCell.colId}"]`;
     const next = document.querySelector<HTMLInputElement>(selector);
@@ -712,7 +700,7 @@ export default function BaseTable({
         const inputRef = useRef<HTMLInputElement>(null);
         const cellValue = getValue();
         const [editValue, setEditValue] = useState<string>(cellValue == null ? "" : String(cellValue));
-        const rowIndex = row.index;
+        const rowIndex = row.original.__rowIndex ?? row.index;
         const colIndex = visibleColumnOrder.indexOf(key);
         const recordId = row.original.__recordId;
         const field = fieldLookup[key];
@@ -734,41 +722,6 @@ export default function BaseTable({
         useEffect(() => {
           setEditValue(cellValue == null ? "" : String(cellValue));
         }, [cellValue]);
-
-        useEffect(() => {
-          const input = inputRef.current;
-          if (!input) return;
-          const handleNativeKeyDown = (evt: KeyboardEvent) => {
-            if (process.env.NODE_ENV !== "production") {
-              console.log("native keydown", {
-                key: evt.key,
-                rowIndex,
-                colIndex,
-                fieldId: String(key),
-                recordId,
-                defaultPrevented: evt.defaultPrevented,
-              });
-            }
-          };
-          const handleNativeInput = (evt: Event) => {
-            if (process.env.NODE_ENV !== "production") {
-              const target = evt.target as HTMLInputElement | null;
-              console.log("native input", {
-                value: target?.value,
-                rowIndex,
-                colIndex,
-                fieldId: String(key),
-                recordId,
-              });
-            }
-          };
-          input.addEventListener("keydown", handleNativeKeyDown, true);
-          input.addEventListener("input", handleNativeInput, true);
-          return () => {
-            input.removeEventListener("keydown", handleNativeKeyDown, true);
-            input.removeEventListener("input", handleNativeInput, true);
-          };
-        }, [colIndex, recordId, rowIndex]);
 
         const commitChange = (pendingValue?: string) => {
           if (!_onCellChange) return;
@@ -817,14 +770,6 @@ export default function BaseTable({
             }`}
             data-cell-container="true"
             onClick={() => {
-              if (process.env.NODE_ENV !== "production") {
-                console.log("cell container click", {
-                  rowIndex,
-                  colIndex,
-                  fieldId: String(key),
-                  recordId,
-                });
-              }
               updateActiveCell(rowIndex, colIndex);
               inputRef.current?.focus();
             }}
@@ -844,32 +789,10 @@ export default function BaseTable({
                 data-col-index={colIndex}
                 data-col-id={String(key)}
                 onFocus={() => {
-                  if (process.env.NODE_ENV !== "production") {
-                    console.log("cell focus", {
-                      rowIndex,
-                      colIndex,
-                      fieldId: String(key),
-                      recordId,
-                      selection: {
-                        start: inputRef.current?.selectionStart,
-                        end: inputRef.current?.selectionEnd,
-                      },
-                      activeElement: document.activeElement?.tagName,
-                    });
-                  }
                   updateActiveCell(rowIndex, colIndex);
                 }}
                 onChange={(e) => {
                   const nextValue = e.target.value;
-                  if (process.env.NODE_ENV !== "production") {
-                    console.log("cell change", {
-                      rowIndex,
-                      colIndex,
-                      fieldId: String(key),
-                      recordId,
-                      nextValue,
-                    });
-                  }
                   setEditValue(nextValue);
                   setData((old) => {
                     const copy = [...old];
@@ -880,16 +803,6 @@ export default function BaseTable({
                   });
                 }}
                 onBlur={(e) => {
-                  if (process.env.NODE_ENV !== "production") {
-                    console.log("cell blur", {
-                      rowIndex,
-                      colIndex,
-                      fieldId: String(key),
-                      recordId,
-                      relatedTarget: (e.relatedTarget as HTMLElement | null)?.tagName,
-                      activeElement: document.activeElement?.tagName,
-                    });
-                  }
                   commitChange();
                   const clickedOutside = skipRefocusRef.current;
                   skipRefocusRef.current = false;
@@ -913,16 +826,6 @@ export default function BaseTable({
                   }
                 }}
                 onKeyDown={(e) => {
-                  if (process.env.NODE_ENV !== "production") {
-                    console.log("cell keydown", {
-                      key: e.key,
-                      rowIndex,
-                      colIndex,
-                      fieldId: String(key),
-                      recordId,
-                      defaultPrevented: e.defaultPrevented,
-                    });
-                  }
                   if (
                     e.key === "ArrowUp" ||
                     e.key === "ArrowDown" ||
@@ -1005,8 +908,9 @@ export default function BaseTable({
       header: "",
       cell: ({ row }) => {
         const recordId = row.original.__recordId;
+        const absoluteIndex = row.original.__rowIndex ?? row.index;
         const isSelected = selectedRowsRef.current.has(recordId);
-        const showCheckbox = hoveredRowRef.current === row.index || isSelected;
+        const showCheckbox = hoveredRowRef.current === absoluteIndex || isSelected;
         return (
           <div className="flex items-center justify-center text-xs text-gray-500">
             {showCheckbox ? (
@@ -1029,7 +933,7 @@ export default function BaseTable({
                 }}
               />
             ) : (
-              row.index + 1
+              (absoluteIndex ?? 0) + 1
             )}
           </div>
         );
@@ -1078,23 +982,46 @@ export default function BaseTable({
   ]);
 
 
+  const rowVirtualizer = useVirtualizerSafe({
+    count: data.length,
+    getScrollElement,
+    estimateSize,
+    overscan: VIRTUAL_OVERSCAN,
+    observeElementRect,
+    observeElementOffset,
+    scrollToFn: elementScroll,
+    enabled: Boolean(scrollElement),
+  });
+
+  useEffect(() => {
+    const close = () => setContextMenu(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, []);
+
+  const virtualRows = scrollElement ? rowVirtualizer.getVirtualItems() : [];
+
+  const virtualizedData = useMemo(() => {
+    if (!virtualRows.length) {
+      // Fallback render a minimal slice while virtualizer initializes to avoid empty UI.
+      return data.slice(0, Math.min(20, data.length));
+    }
+    return virtualRows
+      .map((v) => data[v.index])
+      .filter((row): row is RowData => Boolean(row));
+  }, [data, virtualRows]);
+
   const table = useReactTable({
-    data,
+    data: virtualizedData,
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
   const tableRows = table.getRowModel().rows;
-  const totalRows = tableRows.length;
-  const startIndex = Math.max(
-    0,
-    Math.floor(scrollState.scrollTop / VIRTUAL_ROW_HEIGHT) - VIRTUAL_OVERSCAN,
-  );
-  const visibleCount =
-    Math.ceil(scrollState.viewportHeight / VIRTUAL_ROW_HEIGHT) + VIRTUAL_OVERSCAN * 2;
-  const endIndex = Math.min(totalRows, startIndex + visibleCount);
-  const visibleRows = tableRows.slice(startIndex, endIndex);
-  const topSpacerHeight = Math.max(startIndex * VIRTUAL_ROW_HEIGHT, 0);
-  const bottomSpacerHeight = Math.max(totalRows - endIndex, 0) * VIRTUAL_ROW_HEIGHT;
+  const totalRows = data.length;
+  const topSpacerHeight = virtualRows.length ? virtualRows[0]!.start : 0;
+  const bottomSpacerHeight = virtualRows.length
+    ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1]!.end
+    : 0;
 
   const widthClass = (columnId: string) => {
     const isRowNumber = columnId === "rowNumber";
@@ -1147,10 +1074,7 @@ export default function BaseTable({
         ref={scrollContainerRef}
         onScroll={(e) => {
           lastScrollTopRef.current = e.currentTarget.scrollTop;
-          setScrollState({
-            scrollTop: e.currentTarget.scrollTop,
-            viewportHeight: e.currentTarget.clientHeight || 0,
-          });
+          maybeLoadMore();
         }}
       >
         <table className="table-auto border-separate border-spacing-0 text-sm">
@@ -1234,15 +1158,16 @@ export default function BaseTable({
                 <td colSpan={table.getVisibleLeafColumns().length} style={{ height: topSpacerHeight }} className="p-0 border-0" />
               </tr>
             )}
-            {visibleRows.map((row) => {
-              const rowHovered = hoveredRow === row.index;
+            {tableRows.map((row) => {
+              const absoluteIndex = row.original.__rowIndex ?? row.index;
+              const rowHovered = hoveredRow === absoluteIndex;
               const recordId = row.original.__recordId;
               const isSelected = selectedRows.has(recordId);
               return (
                 <tr
                   key={row.id}
                   className={`${rowHovered ? "bg-[#f1f3f7]" : "bg-white even:bg-[#fbfbfe]"} ${isSelected ? "border border-blue-50" : ""}`}
-                  onMouseEnter={() => setHoveredRow(row.index)}
+                  onMouseEnter={() => setHoveredRow(absoluteIndex)}
                   onMouseLeave={() => setHoveredRow(null)}
                   style={{ height: VIRTUAL_ROW_HEIGHT }}
                 >
@@ -1376,19 +1301,6 @@ export default function BaseTable({
                 type="text"
                 value={pendingFieldName}
                 onChange={(e) => setPendingFieldName(e.target.value)}
-                onFocus={() => {
-                  if (process.env.NODE_ENV !== "production") {
-                    console.log("field name focus");
-                  }
-                }}
-                onBlur={(e) => {
-                  if (process.env.NODE_ENV !== "production") {
-                    console.log("field name blur", {
-                      relatedTarget: (e.relatedTarget as HTMLElement | null)?.tagName,
-                      activeElement: document.activeElement?.tagName,
-                    });
-                  }
-                }}
                 className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-gray-800"
                 placeholder={`Field ${localFields.length + 1}`}
               />

@@ -481,7 +481,7 @@ export const tableRouter = createTRPCRouter({
 
       return {
         records: orderedRecords,
-        nextCursor,
+        nextCursor, 
         total,
       };
     }),
