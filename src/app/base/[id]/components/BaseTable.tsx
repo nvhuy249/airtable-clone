@@ -40,8 +40,6 @@ const displayValue = (value: ColumnValue) => (value == null ? "" : String(value)
 const VIRTUAL_ROW_HEIGHT = 42;
 const VIRTUAL_OVERSCAN = 8;
 
-const useIsomorphicLayoutEffect = typeof document !== "undefined" ? useLayoutEffect : useEffect;
-
 const readCellValue = (field: FieldShape, cell?: CellShape | null): ColumnValue => {
   if (!cell) return null;
   return field.type === "NUMBER"
@@ -222,8 +220,6 @@ export default function BaseTable({
     node.addEventListener("wheel", handleWheel, { passive: false });
     return () => node.removeEventListener("wheel", handleWheel);
   }, []);
-  const getScrollElement = useCallback(() => scrollElement, [scrollElement]);
-  const estimateSize = useCallback(() => VIRTUAL_ROW_HEIGHT, []);
 
   const openContextMenu = useCallback(
     (clientX: number, clientY: number, recordId: string) => {
@@ -1051,15 +1047,15 @@ export default function BaseTable({
 
   const virtualRows = rowVirtualizer.getVirtualItems();
 
-  useEffect(() => {
-    console.log('🔍 Virtualization Status:', {
-      'Total data rows': data.length,
-      'Virtual items rendered': virtualRows.length,
-      'Savings': `${((1 - virtualRows.length / data.length) * 100).toFixed(1)}%`,
-      'First visible row': virtualRows[0]?.index,
-      'Last visible row': virtualRows[virtualRows.length - 1]?.index,
-    });
-  }, [data.length, virtualRows.length]);
+  // useEffect(() => {
+  //   console.log('🔍 Virtualization Status:', {
+  //     'Total data rows': data.length,
+  //     'Virtual items rendered': virtualRows.length,
+  //     'Savings': `${((1 - virtualRows.length / data.length) * 100).toFixed(1)}%`,
+  //     'First visible row': virtualRows[0]?.index,
+  //     'Last visible row': virtualRows[virtualRows.length - 1]?.index,
+  //   });
+  // }, [data.length, virtualRows.length]);
 
   const table = useReactTable({
     data: data,

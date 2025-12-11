@@ -8,7 +8,6 @@ import Banner from "./components/Banner";
 import QuickActions from "./components/QuickActions";
 import CreateBaseModal from "./components/CreateBaseModal";
 import { signOut } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import { api } from "~/trpc/react"; 
 
 import type { Base } from "./components/BaseCard";
@@ -39,7 +38,6 @@ export default function PageClient({ user, bases }: PageClientProps) {
   const [view, setView] = useState<"grid" | "list">("grid");
   const [basesState, setBasesState] = useState<Base[]>(bases);
 
-  const router = useRouter();
   // Sidebar expand logic
   const expanded = sidebarOpen || sidebarHover;
 

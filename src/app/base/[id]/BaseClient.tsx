@@ -158,7 +158,7 @@ export default function BaseClient({
       const allRecords = recordsQuery.data?.pages.flatMap((p) => p.records) ?? [];
       return allRecords;
     },
-    [recordsQuery.data?.pages, recordsQuery.hasNextPage, recordsQuery.isFetchingNextPage]
+    [recordsQuery.data?.pages]
   );
   const totalCount = recordsQuery.data?.pages[0]?.total ?? undefined;
   const hasMore = Boolean(recordsQuery.hasNextPage);
@@ -220,7 +220,7 @@ export default function BaseClient({
   }, [activeTableId]);
 
   const createTable = api.table.create.useMutation({
-    onMutate: async ({ baseId, name }) => {
+    onMutate: async ({ name }) => {
       const tempId = "temp-table-" + Date.now();
 
       const optimistic = {
@@ -434,7 +434,7 @@ export default function BaseClient({
   });
 
   const addRecord = api.table.addRecord.useMutation({
-    onMutate: async ({ tableId }) => {
+    onMutate: async () => {
       if (!recordsQueryInput) return { previous: undefined };
 
       await utils.table.records.cancel(recordsQueryInput);
