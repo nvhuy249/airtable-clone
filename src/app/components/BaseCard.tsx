@@ -20,6 +20,7 @@ export interface Base {
   createdAt: string | Date;
   updatedAt: string | Date;
   ownerId: string;
+  tables: {id:string; name: string}[];
 }
 
 interface BaseCardProps {

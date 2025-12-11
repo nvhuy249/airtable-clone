@@ -47,11 +47,13 @@ const buildTextValueExpr = (alias: string) =>
   `LOWER(COALESCE(${alias}."valueText", ${alias}."valueNumber"::text, ''))`;
 
 const buildNumberValueExpr = (alias: string) =>
-  `(CASE
+  `(
+    CASE
       WHEN ${alias}."valueNumber" IS NOT NULL THEN ${alias}."valueNumber"
-      WHEN ${alias}."valueText" ~ '${NUMERIC_REGEX}' THEN ${alias}."valueText"::double precision
+      WHEN ${alias}."valueText" ~ '${NUMERIC_REGEX}' THEN (${alias}."valueText")::double precision
       ELSE NULL
-    END)`;
+    END
+  )`;
 
 const buildFilterClause = (
   filters: z.infer<typeof filtersSchema>,
@@ -133,31 +135,55 @@ const buildFilterClause = (
     }
 
     const valueParam = addParam(condition.value ?? "");
-    const valueExpr =
-      field.type === FieldType.NUMBER ? buildNumberValueExpr("c") : buildTextValueExpr("c");
-    const comparator = field.type === FieldType.NUMBER ? valueParam : `LOWER(${valueParam})`;
+    const textValueExpr = buildTextValueExpr("c"); 
+    const comparator = `LOWER(${valueParam})`;
 
     switch (condition.operator) {
       case "contains":
         clauses.push(
-          `EXISTS (SELECT 1 FROM "Cell" c WHERE c."recordId" = r.id AND c."fieldId" = ${fieldParam} AND ${valueExpr} LIKE '%' || ${comparator} || '%')`,
+          `EXISTS (
+            SELECT 1
+            FROM "Cell" c
+            WHERE c."recordId" = r.id
+              AND c."fieldId" = ${fieldParam}
+              AND ${textValueExpr} LIKE '%' || ${comparator} || '%'
+          )`
         );
         break;
+
       case "not_contains":
         clauses.push(
-          `NOT EXISTS (SELECT 1 FROM "Cell" c WHERE c."recordId" = r.id AND c."fieldId" = ${fieldParam} AND ${valueExpr} LIKE '%' || ${comparator} || '%')`,
+          `NOT EXISTS (
+            SELECT 1
+            FROM "Cell" c
+            WHERE c."recordId" = r.id
+              AND c."fieldId" = ${fieldParam}
+              AND ${textValueExpr} LIKE '%' || ${comparator} || '%'
+          )`
         );
         break;
+
       case "is":
-        if (field.type !== FieldType.NUMBER) {
-          clauses.push(
-            `EXISTS (SELECT 1 FROM "Cell" c WHERE c."recordId" = r.id AND c."fieldId" = ${fieldParam} AND ${valueExpr} = ${comparator})`,
-          );
-        }
+        clauses.push(
+          `EXISTS (
+            SELECT 1
+            FROM "Cell" c
+            WHERE c."recordId" = r.id
+              AND c."fieldId" = ${fieldParam}
+              AND ${textValueExpr} = ${comparator}
+          )`
+        );
         break;
+
       case "is_not":
         clauses.push(
-          `NOT EXISTS (SELECT 1 FROM "Cell" c WHERE c."recordId" = r.id AND c."fieldId" = ${fieldParam} AND ${valueExpr} = ${comparator})`,
+          `NOT EXISTS (
+            SELECT 1
+            FROM "Cell" c
+            WHERE c."recordId" = r.id
+              AND c."fieldId" = ${fieldParam}
+              AND ${textValueExpr} = ${comparator}
+          )`
         );
         break;
     }
@@ -376,6 +402,7 @@ export const tableRouter = createTRPCRouter({
         cursor: z.string().nullish(),
         filters: filtersSchema.default({ connector: "and", conditions: [] }),
         sorts: z.array(sortItemSchema).default([]),
+        globalSearch: z.string().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -406,7 +433,29 @@ export const tableRouter = createTRPCRouter({
         return `$${baseParams.length}`;
       };
 
-      const filterClause = buildFilterClause(input.filters, addBaseParam, fieldLookup);
+      let filterClause = buildFilterClause(input.filters, addBaseParam, fieldLookup);
+
+      if (input.globalSearch && input.globalSearch.trim() !== "") {
+        const searchParam = addBaseParam(input.globalSearch.toLowerCase());
+
+        // MATCHES ANY CELL IN THE TABLE
+        const globalSearchClause = `
+          EXISTS (
+            SELECT 1
+            FROM "Cell" gc
+            WHERE gc."recordId" = r.id
+              AND LOWER(COALESCE(gc."valueText", gc."valueNumber"::text, ''))
+                  LIKE '%' || ${searchParam} || '%'
+          )
+        `;
+
+        // Combine with existing filter clause
+        if (filterClause) {
+          filterClause = `(${filterClause}) AND (${globalSearchClause})`;
+        } else {
+          filterClause = globalSearchClause;
+        }
+      }
 
       const fetchParams = [...baseParams];
       const addFetchParam = (val: unknown) => {

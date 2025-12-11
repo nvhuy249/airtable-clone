@@ -7,7 +7,7 @@ import TableTopBar from "./components/TableTopBar";
 import TableToolbar from "./components/TableToolbar";
 import ViewSidebar from "./components/ViewSidebar";
 import BaseTable from "./components/BaseTable";
-import type { Condition as FilterCondition, SortItem, SortState } from "./components/TableToolbar";
+import type { Condition as FilterCondition, SortItem, SortState, Operator } from "./components/TableToolbar";
 import { api } from "~/trpc/react";
 import type { RouterOutputs } from "~/trpc/react";
 
@@ -46,6 +46,11 @@ interface BaseClientProps {
   };
 }
 
+type Table = {
+  id: string;
+  name: string;
+};
+
 export default function BaseClient({
   baseId,
   baseName,
@@ -56,7 +61,7 @@ export default function BaseClient({
     user?.name?.charAt(0)?.toUpperCase() ??
     user?.email?.charAt(0)?.toUpperCase() ??
     "U";
-  const [tablesState, setTablesState] = useState(tables);
+  const [tablesState, setTablesState] = useState<Table[]>(tables ?? []);
   const [activeTableId, setActiveTableId] = useState(
     tables[0]?.id ?? baseId,
   );
@@ -80,19 +85,41 @@ export default function BaseClient({
   });
   const [sortUi, setSortUi] = useState<SortState>({ items: [], auto: true });
   const [appliedSorts, setAppliedSorts] = useState<SortItem[]>([]);
+  const [globalSearch, setGlobalSearch] = useState("");
   const RECORD_PAGE_SIZE = 50;
 
-  const serializedFilters = useMemo(
-    () => ({
+  const serializedFilters = useMemo(() => {
+    // base filters from toolbar
+    let final = {
       connector: filters.connector,
-      conditions: filters.conditions.map((c) => ({
+      conditions: filters.conditions.map(c => ({
         fieldId: c.fieldId,
         operator: c.operator,
-        value: c.value ?? "",
-      })),
-    }),
-    [filters],
-  );
+        value: c.value ?? ""
+      }))
+    };
+
+    if (globalSearch.trim() && tableQuery.data?.fields) {
+      const searchText = globalSearch.trim();
+
+      const searchConditions = tableQuery.data.fields.map((f) => ({
+        id: `global-${f.id}-${Date.now()}`,
+        fieldId: f.id,
+        operator: "contains" as Operator,
+        value: searchText,
+      }));
+
+      final = {
+        connector: "or",
+        conditions: [
+          ...final.conditions,
+          ...searchConditions,
+        ],
+      };
+    }
+
+    return final;
+  }, [filters, globalSearch, tableQuery.data?.fields]);
 
   const serializedSorts = useMemo(
     () => appliedSorts.map((s) => ({ fieldId: s.fieldId, direction: s.direction })),
@@ -193,23 +220,66 @@ export default function BaseClient({
   }, [activeTableId]);
 
   const createTable = api.table.create.useMutation({
-    onSuccess: (table) => {
-      setTablesState((prev) => [...prev, { id: table.id, name: table.name }]);
-      setActiveTableId(table.id);
-      utils.table.byId.setData({ id: table.id }, table);
+    onMutate: async ({ baseId, name }) => {
+      const tempId = "temp-table-" + Date.now();
+
+      const optimistic = {
+        id: tempId,
+        name: name ?? "New Table",
+      };
+
+      const previous = tablesState;
+
+      setTablesState((prev) => [...prev, optimistic]);
+
+      return { previous, tempId };
+    },
+
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous) {
+        setTablesState(ctx.previous);
+      }
+    },
+
+    onSuccess: (realTable, _vars, ctx) => {
+      setTablesState((prev) =>
+        prev.map((t) => (t.id === ctx.tempId ? realTable : t))
+      );
+      setActiveTableId(realTable.id);
     },
   });
 
   const deleteTable = api.table.delete.useMutation({
-    onSuccess: ({ tableId }) => {
-      setTablesState((prev) => {
-        const next = prev.filter((t) => t.id !== tableId);
-        if (activeTableId === tableId) {
-          setActiveTableId(next[0]?.id ?? "");
+    onMutate: ({ tableId }) => {
+      const previous = tablesState;
+
+      const deletedIndex = previous.findIndex(t => t.id === tableId);
+
+      const nextTables = previous.filter(t => t.id !== tableId);
+      setTablesState(nextTables);
+
+      if (tableId === activeTableId) {
+        let newActiveId = "";
+
+        if (nextTables.length > 0) {
+          // 1. Try SAME index (table after deleted)
+          newActiveId = nextTables[deletedIndex]?.id
+            // 2. Or previous table
+            ?? nextTables[deletedIndex - 1]?.id
+            // 3. Or first table
+            ?? nextTables[0]?.id
+            // 4. Or empty
+            ?? "";
         }
-        return next;
-      });
-      utils.table.byId.setData({ id: tableId }, undefined);
+
+        setActiveTableId(newActiveId);
+      }
+
+      return { previous };
+    },
+
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous) setTablesState(ctx.previous);
     },
   });
 
@@ -364,13 +434,64 @@ export default function BaseClient({
   });
 
   const addRecord = api.table.addRecord.useMutation({
-    onSuccess: ({ record: _record }, { tableId }) => {
-      if (recordsQueryInput) {
-        void utils.table.records.invalidate(recordsQueryInput);
-      } else {
-        void utils.table.records.invalidate();
+    onMutate: async ({ tableId }) => {
+      if (!recordsQueryInput) return { previous: undefined };
+
+      await utils.table.records.cancel(recordsQueryInput);
+
+      const previous = utils.table.records.getInfiniteData(recordsQueryInput);
+
+      const optimisticId = "temp-record-" + Date.now();
+      const fields = tableQuery.data?.fields ?? [];
+
+      const optimisticRecord = {
+        id: optimisticId,
+        cells: fields.map((f) => ({
+          id: "temp-cell-" + optimisticId + "-" + f.id,
+          recordId: optimisticId,
+          fieldId: f.id,
+          valueText: null,
+          valueNumber: null,
+        })),
+      };
+
+      utils.table.records.setInfiniteData(recordsQueryInput, (prev) => {
+        if (!prev) return prev;
+
+        return {
+          ...prev,
+          pages: prev.pages.map((page, idx) =>
+            idx === 0
+              ? { ...page, records: [...page.records, optimisticRecord] }
+              : page
+          ),
+        };
+      });
+
+      return { previous, optimisticId };
+    },
+
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous) {
+        if (!recordsQueryInput) return { previous: undefined };
+        utils.table.records.setInfiniteData(recordsQueryInput, ctx.previous);
       }
-      void utils.table.byId.invalidate({ id: tableId });
+    },
+
+    onSuccess: ({ record }, _vars, ctx) => {
+      if (!recordsQueryInput) return { previous: undefined };
+      utils.table.records.setInfiniteData(recordsQueryInput, (prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          pages: prev.pages.map((page) => ({
+            ...page,
+            records: page.records.map((r) =>
+              r.id === ctx.optimisticId ? { ...r, id: record.id } : r
+            ),
+          })),
+        };
+      });
     },
   });
 
@@ -414,13 +535,41 @@ export default function BaseClient({
   });
 
   const deleteRecords = api.table.deleteRecords.useMutation({
-    onSuccess: ({ tableId }) => {
-      if (recordsQueryInput) {
-        utils.table.records.invalidate(recordsQueryInput).catch(() => undefined);
-      } else {
-        utils.table.records.invalidate().catch(() => undefined);
+    onMutate: async ({ recordIds }) => {
+      if (!recordsQueryInput) return { previous: undefined };
+
+      // Cancel outgoing fetches
+      await utils.table.records.cancel(recordsQueryInput);
+
+      // Snapshot previous state
+      const previous = utils.table.records.getInfiniteData(recordsQueryInput);
+
+      // Optimistically remove the record from all pages
+      utils.table.records.setInfiniteData(recordsQueryInput, (prev) => {
+        if (!prev) return prev;
+
+        return {
+          ...prev,
+          pages: prev.pages.map((page) => ({
+            ...page,
+            records: page.records.filter((r) => !recordIds.includes(r.id)), // ⭐ remove
+          })),
+        };
+      });
+
+      return { previous };
+    },
+
+    onError: (_err, _vars, ctx) => {
+      // Rollback if failed
+      if (ctx?.previous && recordsQueryInput) {
+        utils.table.records.setInfiniteData(recordsQueryInput, ctx.previous);
       }
-      utils.table.byId.invalidate({ id: tableId }).catch(() => undefined);
+    },
+
+    onSuccess: () => {
+      // Optional: force refresh if server returns new pagination info
+      // void utils.table.records.invalidate(recordsQueryInput);
     },
   });
 
@@ -556,6 +705,8 @@ export default function BaseClient({
               setAppliedSorts(next.items);
             }
           }}
+          globalSearch={globalSearch}
+          onGlobalSearchChange={setGlobalSearch}
         />
 
         {/* BODY: view sidebar + table */}
@@ -605,8 +756,9 @@ export default function BaseClient({
                 deleteField.mutate({ fieldId });
               }}
               onDeleteRecords={(recordIds) => {
-                if (!recordIds.length || deleteRecords.isPending || !activeTableId)
-                  return;
+                if (!recordIds?.length || deleteRecords.isPending || !activeTableId) return;
+
+                // ⭐ Pass the full array to backend
                 deleteRecords.mutate({ recordIds });
               }}
               onRenameColumn={(fieldId, name) => {

@@ -50,9 +50,36 @@ export default function PageClient({ user, bases }: PageClientProps) {
   const filteredBases = basesState; // (modify when timestamps added)
 
   const createBase = api.base.create.useMutation({
-    onSuccess: (base) => {
-      setBasesState((prev) => [base, ...prev]);
-      router.push(`/base/${base.id}`);
+    onMutate: async ({ name }) => {
+      const tempId = "temp-base-" + Date.now();
+
+        const optimistic: Base = {
+        id: tempId,
+        name,
+        tables: [
+          { id: "temp-table-" + Date.now(), name: "Table 1" }
+        ],
+        ownerId: user.id,                     // ADD THIS
+        createdAt: new Date(),                // ADD
+        updatedAt: new Date(),                // ADD
+      };
+
+      const previous = basesState;
+      setBasesState((prev) => [optimistic, ...prev]);
+
+      return { previous, tempId };
+    },
+
+    onError: (_e, _v, ctx) => {
+      if (ctx?.previous) setBasesState(ctx.previous);
+    },
+
+    onSuccess: (realBase, _v, ctx) => {
+      setBasesState((prev) =>
+        prev.map((b) =>
+          b.id === ctx.tempId ? realBase : b
+        )
+      );
     },
   });
 

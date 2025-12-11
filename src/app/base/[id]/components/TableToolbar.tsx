@@ -33,9 +33,11 @@ interface TableToolbarProps {
   onSortsChange: (state: SortState, commit?: boolean) => void;
   onSeedRows?: (count: number) => void;
   isSeedingRows?: boolean;
+  globalSearch: string;
+  onGlobalSearchChange: (value: string) => void;
 }
 
-type Operator =
+export type Operator =
   | "contains"
   | "not_contains"
   | "is"
@@ -75,6 +77,8 @@ export default function TableToolbar({
   onSortsChange,
   onSeedRows,
   isSeedingRows,
+  globalSearch,
+  onGlobalSearchChange,
 }: TableToolbarProps) {
   const [open, setOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -226,13 +230,16 @@ export default function TableToolbar({
           </button>
         ))}
 
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 hover:text-gray-900"
-          aria-label="Search"
-        >
-          <Search className="h-3.5 w-3.5" />
-        </button>
+        <div className="relative">
+          <input
+            type="text"
+            placeholder="Search table..."
+            className="border rounded px-2 py-1 text-[13px] w-40 focus:w-64 transition-all"
+            value={globalSearch}
+            onChange={(e) => onGlobalSearchChange(e.target.value)}
+          />
+          <Search className="absolute right-2 top-1.5 h-3.5 w-3.5 text-gray-400" />
+        </div>
 
         {open && (
           <div
