@@ -16,6 +16,7 @@ export const baseRouter = createTRPCRouter({
     return ctx.db.base.findMany({
       where: { ownerId: ctx.session.user.id },
       orderBy: { createdAt: "desc" },
+      include: { tables: true}
     });
   }),
 
