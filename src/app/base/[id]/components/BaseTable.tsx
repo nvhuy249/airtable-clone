@@ -7,13 +7,7 @@ import {
   type CellContext,
   type ColumnDef,
 } from "@tanstack/react-table";
-import {
-  Virtualizer,
-  elementScroll,
-  observeElementOffset,
-  observeElementRect,
-  type VirtualizerOptions,
-} from "@tanstack/virtual-core";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
 import { FiChevronDown, FiCircle, FiPaperclip, FiPlus, FiType, FiUser } from "react-icons/fi";
 import type React from "react";
@@ -47,62 +41,6 @@ const VIRTUAL_ROW_HEIGHT = 42;
 const VIRTUAL_OVERSCAN = 8;
 
 const useIsomorphicLayoutEffect = typeof document !== "undefined" ? useLayoutEffect : useEffect;
-
-function useVirtualizerSafe<TScrollElement extends Element, TItemElement extends Element>(
-  options: VirtualizerOptions<TScrollElement, TItemElement>,
-) {
-  const [, force] = useState(0);
-  const stableOnChange = useCallback(
-    (instance: Virtualizer<TScrollElement, TItemElement>) => {
-      force((v) => v + 1);
-      options.onChange?.(instance, false);
-    },
-    [
-      options.onChange,
-    ],
-  );
-
-  const resolvedOptions = useMemo(
-    () => ({
-      ...options,
-      onChange: stableOnChange,
-    }),
-    [
-      options.count,
-      options.overscan,
-      options.enabled,
-      options.getScrollElement,
-      options.measureElement,
-      options.scrollToFn,
-      options.observeElementRect,
-      options.observeElementOffset,
-      options.rangeExtractor,
-      options.initialOffset,
-      options.estimateSize,
-      stableOnChange,
-    ],
-  );
-
-  const instanceRef = useRef<Virtualizer<TScrollElement, TItemElement> | null>(null);
-  const prevOptionsRef = useRef<typeof resolvedOptions | null>(null);
-
-  if (!instanceRef.current) {
-    instanceRef.current = new Virtualizer<TScrollElement, TItemElement>(resolvedOptions);
-    prevOptionsRef.current = resolvedOptions;
-  }
-
-  useIsomorphicLayoutEffect(() => instanceRef.current?._didMount(), []);
-
-  useIsomorphicLayoutEffect(() => {
-    if (prevOptionsRef.current !== resolvedOptions) {
-      instanceRef.current?.setOptions(resolvedOptions);
-      prevOptionsRef.current = resolvedOptions;
-    }
-    instanceRef.current?._willUpdate();
-  }, [resolvedOptions]);
-
-  return instanceRef.current!;
-}
 
 const readCellValue = (field: FieldShape, cell?: CellShape | null): ColumnValue => {
   if (!cell) return null;
@@ -277,7 +215,7 @@ export default function BaseTable({
     const handleWheel = (e: WheelEvent) => {
       if (!e.cancelable) return;
       e.preventDefault();
-      node.scrollBy({ top: e.deltaY * 0.25, behavior: "auto" });
+      node.scrollBy({ top: e.deltaY * 0.5, behavior: "auto" });
     };
     node.addEventListener("wheel", handleWheel, { passive: false });
     return () => node.removeEventListener("wheel", handleWheel);
@@ -469,6 +407,10 @@ export default function BaseTable({
     const node = scrollContainerRef.current;
     if (!node) return;
     const distanceFromBottom = node.scrollHeight - (node.scrollTop + node.clientHeight);
+    if (distanceFromBottom <= VIRTUAL_ROW_HEIGHT * 4) {
+      onLoadMore();
+    }
+
     if (distanceFromBottom <= VIRTUAL_ROW_HEIGHT * 4) {
       onLoadMore();
     }
@@ -982,16 +924,37 @@ export default function BaseTable({
   ]);
 
 
-  const rowVirtualizer = useVirtualizerSafe({
+  const rowVirtualizer = useVirtualizer({
     count: data.length,
-    getScrollElement,
-    estimateSize,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => VIRTUAL_ROW_HEIGHT,
     overscan: VIRTUAL_OVERSCAN,
-    observeElementRect,
-    observeElementOffset,
-    scrollToFn: elementScroll,
-    enabled: Boolean(scrollElement),
   });
+
+  useEffect(() => {
+    if (scrollElement && data.length > 0) {
+      // Force the virtualizer to recalculate by notifying it of a scroll
+      const element = scrollContainerRef.current;
+      if (element) {
+        // Save current scroll position
+        const currentScroll = element.scrollTop;
+        // Trigger recalculation by scrolling slightly
+        element.scrollTop = currentScroll + 0.1;
+        element.scrollTop = currentScroll;
+      }
+    }
+  }, [data.length, scrollElement]);
+
+  useEffect(() => {
+    if (scrollElement && data.length > 0) {
+      // Critical: Force virtualizer to recalculate total size
+      rowVirtualizer?.measure();
+      // Also force it to recalculate its internal measurements
+      if (typeof rowVirtualizer?.calculateRange === 'function') {
+        rowVirtualizer.calculateRange();
+      }
+    }
+  }, [data.length, scrollElement, rowVirtualizer]);
 
   useEffect(() => {
     const close = () => setContextMenu(null);
@@ -999,29 +962,55 @@ export default function BaseTable({
     return () => window.removeEventListener("click", close);
   }, []);
 
-  const virtualRows = scrollElement ? rowVirtualizer.getVirtualItems() : [];
+  const virtualRows = rowVirtualizer.getVirtualItems();
 
-  const virtualizedData = useMemo(() => {
-    if (!virtualRows.length) {
-      // Fallback render a minimal slice while virtualizer initializes to avoid empty UI.
-      return data.slice(0, Math.min(20, data.length));
-    }
-    return virtualRows
-      .map((v) => data[v.index])
-      .filter((row): row is RowData => Boolean(row));
-  }, [data, virtualRows]);
+  useEffect(() => {
+    console.log('🔍 Virtualization Status:', {
+      'Total data rows': data.length,
+      'Virtual items rendered': virtualRows.length,
+      'Savings': `${((1 - virtualRows.length / data.length) * 100).toFixed(1)}%`,
+      'First visible row': virtualRows[0]?.index,
+      'Last visible row': virtualRows[virtualRows.length - 1]?.index,
+    });
+  }, [data.length, virtualRows.length]);
 
   const table = useReactTable({
-    data: virtualizedData,
+    data: data,
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
-  const tableRows = table.getRowModel().rows;
-  const totalRows = data.length;
+  const allRows = table.getRowModel().rows;
+  const tableRows = virtualRows
+    .map((virtualRow) => allRows[virtualRow.index])
+    .filter((row): row is NonNullable<typeof row> => row !== undefined);
+
+  // const tableRows = table.getRowModel().rows;
   const topSpacerHeight = virtualRows.length ? virtualRows[0]!.start : 0;
-  const bottomSpacerHeight = virtualRows.length
+  const bottomSpacerHeight = virtualRows.length && rowVirtualizer
     ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1]!.end
     : 0;
+
+  const scrollPositionRef = useRef(0);
+
+  const prevDataLengthRef = useRef(data.length);
+
+  useLayoutEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    
+    const prevLength = prevDataLengthRef.current;
+    const currentLength = data.length;
+    
+    // If data grew (new page loaded), restore scroll
+    if (currentLength > prevLength && prevLength > 0) {
+      const savedScroll = scrollPositionRef.current;
+      if (savedScroll > 0) {
+        container.scrollTop = savedScroll;
+      }
+    }
+    
+    prevDataLengthRef.current = currentLength;
+  }, [data.length]);
 
   const widthClass = (columnId: string) => {
     const isRowNumber = columnId === "rowNumber";
@@ -1073,14 +1062,16 @@ export default function BaseTable({
         className="flex-1 overflow-auto bg-white border-t border-gray-300"
         ref={scrollContainerRef}
         onScroll={(e) => {
-          lastScrollTopRef.current = e.currentTarget.scrollTop;
+          const scrollTop = e.currentTarget.scrollTop;
+          scrollPositionRef.current = scrollTop;
+          lastScrollTopRef.current = scrollTop;
           maybeLoadMore();
         }}
       >
         <table className="table-auto border-separate border-spacing-0 text-sm">
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id} className="bg-[#f5f6fa]">
+              <tr key={headerGroup.id} className="bg-white">
                 {headerGroup.headers.map((header) => {
                   const headerHover =
                     hoveredHeader === header.id ? "bg-[#eef0f5]" : "";
@@ -1166,7 +1157,7 @@ export default function BaseTable({
               return (
                 <tr
                   key={row.id}
-                  className={`${rowHovered ? "bg-[#f1f3f7]" : "bg-white even:bg-[#fbfbfe]"} ${isSelected ? "border border-blue-50" : ""}`}
+                  className={`${rowHovered ? "bg-[#f1f3f7]" : "bg-white"} ${isSelected ? "border border-blue-50" : ""}`}
                   onMouseEnter={() => setHoveredRow(absoluteIndex)}
                   onMouseLeave={() => setHoveredRow(null)}
                   style={{ height: VIRTUAL_ROW_HEIGHT }}
@@ -1187,28 +1178,23 @@ export default function BaseTable({
                 </tr>
               );
             })}
-            {(hasMore || isFetchingMore) && (
-              <tr>
-                <td colSpan={table.getVisibleLeafColumns().length} className="p-0 border-0">
-                  <div
-                    className="relative w-full"
-                    style={{ height: Math.max(bottomSpacerHeight, 24) }}
-                  >
+            <tr>
+              <td colSpan={table.getVisibleLeafColumns().length} className="p-0 border-0">
+                <div
+                  className="relative w-full"
+                  style={{ height: Math.max(bottomSpacerHeight, hasMore || isFetchingMore ? 24 : 0) }}
+                >
+                  {(hasMore || isFetchingMore) && (
                     <div
                       ref={loadMoreRef}
                       className="absolute inset-x-0 bottom-0 px-3 py-3 text-center text-xs text-gray-600"
                     >
-                      {isFetchingMore ? "Loading more records…" : "Scroll to load more records"}
+                      {isFetchingMore ? "Loading more records..." : "Scroll to load more records"}
                     </div>
-                  </div>
-                </td>
-              </tr>
-            )}
-            {bottomSpacerHeight > 0 && !hasMore && (
-              <tr aria-hidden="true">
-                <td colSpan={table.getVisibleLeafColumns().length} style={{ height: bottomSpacerHeight }} className="p-0 border-0" />
-              </tr>
-            )}
+                  )}
+                </div>
+              </td>
+            </tr>
             <tr className="bg-white">
               {table.getVisibleLeafColumns().map((column) => (
                 <td

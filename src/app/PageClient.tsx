@@ -119,7 +119,7 @@ export default function PageClient({ user, bases }: PageClientProps) {
             <div className="flex gap-3">
               <button
                 onClick={() => setView("list")}
-                className={`px-2 py-1 rounded ${
+                className={`cursor-pointer px-2 py-1 rounded ${
                   view === "list"
                     ? "bg-gray-200"
                     : "hover:bg-gray-100 text-gray-500"
@@ -129,7 +129,7 @@ export default function PageClient({ user, bases }: PageClientProps) {
               </button>
               <button
                 onClick={() => setView("grid")}
-                className={`px-2 py-1 rounded ${
+                className={`cursor-pointer px-2 py-1 rounded ${
                   view === "grid"
                     ? "bg-gray-200"
                     : "hover:bg-gray-100 text-gray-500"
@@ -149,7 +149,7 @@ export default function PageClient({ user, bases }: PageClientProps) {
               <p className="mb-4 text-sm">
                 Apps that you have recently opened will appear here.
               </p>
-              <button className="px-4 py-2 bg-white border rounded-md shadow-sm hover:bg-gray-50">
+              <button className="cursor-pointer px-4 py-2 bg-white border rounded-md shadow-sm hover:bg-gray-50">
                 Go to all workspaces
               </button>
             </div>

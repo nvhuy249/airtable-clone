@@ -80,7 +80,7 @@ export default function BaseClient({
   });
   const [sortUi, setSortUi] = useState<SortState>({ items: [], auto: true });
   const [appliedSorts, setAppliedSorts] = useState<SortItem[]>([]);
-  const RECORD_PAGE_SIZE = 100;
+  const RECORD_PAGE_SIZE = 50;
 
   const serializedFilters = useMemo(
     () => ({
@@ -127,8 +127,11 @@ export default function BaseClient({
   );
 
   const records = useMemo(
-    () => recordsQuery.data?.pages.flatMap((page) => page.records) ?? [],
-    [recordsQuery.data],
+    () => {
+      const allRecords = recordsQuery.data?.pages.flatMap((p) => p.records) ?? [];
+      return allRecords;
+    },
+    [recordsQuery.data?.pages, recordsQuery.hasNextPage, recordsQuery.isFetchingNextPage]
   );
   const totalCount = recordsQuery.data?.pages[0]?.total ?? undefined;
   const hasMore = Boolean(recordsQuery.hasNextPage);
