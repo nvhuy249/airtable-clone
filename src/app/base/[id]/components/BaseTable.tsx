@@ -178,6 +178,8 @@ export default function BaseTable({
     recordId: string;
   } | null>(null);
   const [activeCell, setActiveCell] = useState<{ rowIndex: number; colId: string } | null>(null);
+  const [editingCell, setEditingCell] = useState<{ rowIndex: number; colId: string } | null>(null);
+
   const [addFieldMenuOpen, setAddFieldMenuOpen] = useState(false);
   const [pendingFieldType, setPendingFieldType] = useState<FieldType | null>(null);
   const [pendingFieldName, setPendingFieldName] = useState("");
@@ -292,6 +294,7 @@ export default function BaseTable({
       if (!insideTable || !insideCell) {
         skipRefocusRef.current = true;
         setActiveCell(null);
+        setEditingCell(null);
         _onActiveCellIndexChange?.(null);
       }
 
@@ -381,6 +384,9 @@ export default function BaseTable({
   hoveredRowRef.current = hoveredRow;
   selectedRowsRef.current = selectedRows;
   activeCellRef.current = activeCell;
+  const editingCellRef = useRef<typeof editingCell>(null);
+  editingCellRef.current = editingCell;
+
   const computeAddFieldAnchor = useCallback(
     (options?: { height?: number; width?: number }) => {
       const button = addFieldButtonRef.current;
@@ -566,69 +572,125 @@ export default function BaseTable({
   );
 
   const updateActiveCell = useCallback(
-    (rowIndex: number, colIndex: number) => {
+    (rowIndex: number, colIndex: number, enterEditMode = false) => {
       const colId = visibleColumnOrder[colIndex];
       if (colId === undefined) return;
-      if (activeCell?.rowIndex === rowIndex && activeCell?.colId === colId) return;
+      if (activeCell?.rowIndex === rowIndex && activeCell?.colId === colId) {
+        if (enterEditMode) {
+          setEditingCell({ rowIndex, colId });
+        }
+        return;
+      }
       setActiveCell({ rowIndex, colId });
+      setEditingCell(enterEditMode ? { rowIndex, colId } : null);
       _onActiveCellIndexChange?.([rowIndex, colIndex]);
     },
     [visibleColumnOrder, _onActiveCellIndexChange, activeCell],
   );
 
+
   const handleCellNavigation = useCallback(
-    (
-      e: React.KeyboardEvent<HTMLInputElement>,
-      rowIndex: number,
-      colIndex: number,
-      rowCount: number,
-    ) => {
-      if (colIndex < 0 || visibleColumnOrder.length === 0) return;
+  (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    rowIndex: number,
+    colIndex: number,
+    rowCount: number,
+    isInEditMode: boolean,
+  ) => {
+    if (colIndex < 0 || visibleColumnOrder.length === 0) return;
 
-      const key = e.key;
-      let targetRow = rowIndex;
-      let targetCol = colIndex;
-
-      const lastCol = visibleColumnOrder.length - 1;
-      const clampRow = (r: number) => Math.min(Math.max(r, 0), rowCount - 1);
-
-      if (key === "ArrowRight" || (key === "Tab" && !e.shiftKey)) {
-        e.preventDefault();
-        targetCol = colIndex + 1;
-        if (targetCol > lastCol) {
-          targetCol = 0;
-          targetRow = clampRow(rowIndex + 1);
-        }
-      } else if (key === "ArrowLeft" || (key === "Tab" && e.shiftKey)) {
-        e.preventDefault();
-        targetCol = colIndex - 1;
-        if (targetCol < 0) {
-          targetCol = lastCol;
-          targetRow = clampRow(rowIndex - 1);
-        }
-      } else if (key === "ArrowDown") {
-        e.preventDefault();
-        targetRow = clampRow(rowIndex + 1);
-      } else if (key === "ArrowUp") {
-        e.preventDefault();
-        targetRow = clampRow(rowIndex - 1);
-      } else {
+    const key = e.key;
+    
+    // In edit mode, only Tab and Enter navigate
+    if (isInEditMode) {
+      if (key === "ArrowLeft" || key === "ArrowRight" || key === "ArrowUp" || key === "ArrowDown") {
+        // Allow normal text navigation
         return;
       }
-
-      if (targetCol < 0 || targetCol > lastCol) return;
-
-      updateActiveCell(targetRow, targetCol);
-
-      const selector = `input[data-row-index="${targetRow}"][data-col-index="${targetCol}"]`;
-      const next = document.querySelector<HTMLInputElement>(selector);
-      if (next) {
-        next.focus();
-        next.select();
+      
+      if (key === "Tab") {
+        e.preventDefault();
+        let targetRow = rowIndex;
+        let targetCol = colIndex;
+        const lastCol = visibleColumnOrder.length - 1;
+        const clampRow = (r: number) => Math.min(Math.max(r, 0), rowCount - 1);
+        
+        if (e.shiftKey) {
+          targetCol = colIndex - 1;
+          if (targetCol < 0) {
+            targetCol = lastCol;
+            targetRow = clampRow(rowIndex - 1);
+          }
+        } else {
+          targetCol = colIndex + 1;
+          if (targetCol > lastCol) {
+            targetCol = 0;
+            targetRow = clampRow(rowIndex + 1);
+          }
+        }
+        
+        skipRefocusRef.current = true;
+        updateActiveCell(targetRow, targetCol, false);
+        return;
       }
-    },
-    [visibleColumnOrder.length, updateActiveCell],
-  );
+      
+      if (key === "Enter" || key === "Escape") {
+        e.preventDefault();
+        setEditingCell(null);
+        return;
+      }
+      
+      return;
+    }
+
+    // Navigation mode - all arrows and tab work
+    let targetRow = rowIndex;
+    let targetCol = colIndex;
+
+    const lastCol = visibleColumnOrder.length - 1;
+    const clampRow = (r: number) => Math.min(Math.max(r, 0), rowCount - 1);
+
+    if (key === "ArrowRight" || (key === "Tab" && !e.shiftKey)) {
+      e.preventDefault();
+      targetCol = colIndex + 1;
+      if (targetCol > lastCol) {
+        targetCol = 0;
+        targetRow = clampRow(rowIndex + 1);
+      }
+    } else if (key === "ArrowLeft" || (key === "Tab" && e.shiftKey)) {
+      e.preventDefault();
+      targetCol = colIndex - 1;
+      if (targetCol < 0) {
+        targetCol = lastCol;
+        targetRow = clampRow(rowIndex - 1);
+      }
+    } else if (key === "ArrowDown") {
+      e.preventDefault();
+      targetRow = clampRow(rowIndex + 1);
+    } else if (key === "ArrowUp") {
+      e.preventDefault();
+      targetRow = clampRow(rowIndex - 1);
+    } else if (key === "Enter") {
+      e.preventDefault();
+      setEditingCell({ rowIndex, colId: visibleColumnOrder[colIndex]! });
+      return;
+    } else {
+      return;
+    }
+
+    if (targetCol < 0 || targetCol > lastCol) return;
+
+    skipRefocusRef.current = true;
+    updateActiveCell(targetRow, targetCol, false);
+
+    const selector = `input[data-row-index="${targetRow}"][data-col-index="${targetCol}"]`;
+    const next = document.querySelector<HTMLInputElement>(selector);
+    if (next) {
+      next.focus();
+    }
+  },
+  [visibleColumnOrder, updateActiveCell],
+);
 
   const columns = useMemo<ColumnDef<RowData, ColumnValue>[]>(() => {
     const makeEditableCell = (key: string) => {
@@ -649,6 +711,9 @@ export default function BaseTable({
         const isActive =
           activeCellRef.current?.rowIndex === rowIndex &&
           activeCellRef.current?.colId === String(key);
+        const isEditing =
+          editingCellRef.current?.rowIndex === rowIndex &&
+          editingCellRef.current?.colId === String(key);
 
         useEffect(() => {
           if (!isActive) return;
@@ -701,91 +766,116 @@ export default function BaseTable({
         }, [editValue, isActive, field, canonicalValue, recordId]);
 
           return (
-          <div
-            className={`flex h-full min-h-[36px] items-stretch border border-transparent transition-colors ${
-              isActive
-                ? "border-[#1e73ff] ring-2 ring-[#1e73ff]"
-                : "focus-within:border-[#1e73ff] focus-within:ring-1 focus-within:ring-[#1e73ff]"
-            }`}
-            data-cell-container="true"
-            onClick={() => {
-              updateActiveCell(rowIndex, colIndex);
-              inputRef.current?.focus();
-            }}
-            onDoubleClick={() => {
-              inputRef.current?.focus();
-              inputRef.current?.select();
-            }}
-          >
-            <div className="flex flex-auto">
-              <input
-                ref={inputRef}
-                type={isNumberField ? "number" : "text"}
-                className="w-full bg-transparent border-0 outline-none focus:outline-none focus:ring-0 px-[6px] py-[6px] text-sm leading-5 text-gray-900"
-                placeholder=" "
-                value={editValue}
-                data-row-index={rowIndex}
-                data-col-index={colIndex}
-                data-col-id={String(key)}
-                onFocus={() => {
-                  updateActiveCell(rowIndex, colIndex);
-                }}
-                onChange={(e) => {
-                  const nextValue = e.target.value;
-                  setEditValue(nextValue);
-                  setData((old) => {
-                    const copy = [...old];
-                    const current = copy[rowIndex];
-                    if (!current) return old;
-                    copy[rowIndex] = { ...current, [key]: nextValue };
-                    return copy;
-                  });
-                }}
-                onBlur={(e) => {
-                  commitChange();
-                  const clickedOutside = skipRefocusRef.current;
-                  skipRefocusRef.current = false;
-                  const related = e.relatedTarget as HTMLElement | null;
-                  const isOutsideTable =
-                    related && tableWrapperRef.current
-                      ? !tableWrapperRef.current.contains(related)
-                      : false;
-                  if (isOutsideTable || clickedOutside) {
-                    setActiveCell(null);
-                    _onActiveCellIndexChange?.(null);
-                    return;
-                  }
-                  if (isActive) {
-                    requestAnimationFrame(() => {
-                      if (document.activeElement !== inputRef.current) {
-                        inputRef.current?.focus();
-                        inputRef.current?.select();
-                      }
+            <div
+              className={`flex h-full min-h-[36px] items-stretch border border-transparent transition-colors ${
+                isActive
+                  ? "border-[#1e73ff] ring-2 ring-[#1e73ff]"
+                  : "focus-within:border-[#1e73ff] focus-within:ring-1 focus-within:ring-[#1e73ff]"
+              }`}
+              data-cell-container="true"
+              onClick={() => {
+                updateActiveCell(rowIndex, colIndex, false);
+                inputRef.current?.focus();
+              }}
+              onDoubleClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+
+                // 1. Enter edit mode
+                updateActiveCell(rowIndex, colIndex, true);
+                setEditingCell({ rowIndex, colId: String(key) });
+
+                // 2. Delay focus long enough for editing state to apply
+                requestAnimationFrame(() => {
+                  const input = inputRef.current;
+                  if (!input) return;
+
+                  input.focus();
+
+                  // 3. Ensure NO auto-select from double-click
+                  const length = input.value.length;
+                  input.setSelectionRange(length, length); // place caret at end
+                });
+              }}
+            >
+              <div className="flex flex-auto">
+                <input
+                  ref={inputRef}
+                  type={isNumberField ? "number" : "text"}
+                  className="w-full bg-transparent border-0 outline-none focus:outline-none focus:ring-0 px-[6px] py-[6px] text-sm leading-5 text-gray-900"
+                  style={{ caretColor: isEditing ? 'auto' : 'transparent' }}
+                  placeholder=" "
+                  value={editValue}
+                  data-row-index={rowIndex}
+                  data-col-index={colIndex}
+                  data-col-id={String(key)}
+                  onFocus={() => {
+                    if (!isActive) {
+                      updateActiveCell(rowIndex, colIndex, false);
+                    }
+                  }}
+                  onChange={(e) => {
+                    if (!isEditing) {
+                      setEditingCell({ rowIndex, colId: String(key) });
+                    }
+                    const nextValue = e.target.value;
+                    setEditValue(nextValue);
+                    setData((old) => {
+                      const copy = [...old];
+                      const current = copy[rowIndex];
+                      if (!current) return old;
+                      copy[rowIndex] = { ...current, [key]: nextValue };
+                      return copy;
                     });
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (
-                    e.key === "ArrowUp" ||
-                    e.key === "ArrowDown" ||
-                    e.key === "ArrowLeft" ||
-                    e.key === "ArrowRight" ||
-                    e.key === "Tab"
-                  ) {
-                    skipRefocusRef.current = true;
-                    handleCellNavigation(e, rowIndex, colIndex, data.length);
-                    return;
-                  }
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    skipRefocusRef.current = true;
-                    e.currentTarget.blur();
-                  }
-                }}
-              />
+                  }}
+                  onBlur={(e) => {
+                    commitChange();
+                    const clickedOutside = skipRefocusRef.current;
+                    skipRefocusRef.current = false;
+                    const related = e.relatedTarget as HTMLElement | null;
+                    const isOutsideTable =
+                      related && tableWrapperRef.current
+                        ? !tableWrapperRef.current.contains(related)
+                        : false;
+                    if (isOutsideTable || clickedOutside) {
+                      setActiveCell(null);
+                      setEditingCell(null);
+                      _onActiveCellIndexChange?.(null);
+                      return;
+                    }
+                    if (isActive) {
+                      requestAnimationFrame(() => {
+                        if (document.activeElement !== inputRef.current) {
+                          inputRef.current?.focus();
+                        }
+                      });
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    // Typing any character enters edit mode
+                    if (!isEditing && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                      setEditingCell({ rowIndex, colId: String(key) });
+                      return;
+                    }
+
+                    // Handle navigation
+                    if (
+                      e.key === "ArrowUp" ||
+                      e.key === "ArrowDown" ||
+                      e.key === "ArrowLeft" ||
+                      e.key === "ArrowRight" ||
+                      e.key === "Tab" ||
+                      e.key === "Enter" ||
+                      e.key === "Escape"
+                    ) {
+                      handleCellNavigation(e, rowIndex, colIndex, data.length, isEditing);
+                      return;
+                    }
+                  }}
+                />
+              </div>
             </div>
-          </div>
-        );
+          );
       };
 
       EditableCell.displayName = `EditableCell_${String(key)}`;
