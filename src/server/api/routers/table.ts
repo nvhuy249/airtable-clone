@@ -408,21 +408,6 @@ export const tableRouter = createTRPCRouter({
 
       const filterClause = buildFilterClause(input.filters, addBaseParam, fieldLookup);
 
-      const countParams = [...baseParams];
-      const countSql = `
-        SELECT COUNT(*)::int AS count
-        FROM "Record" r
-        JOIN "Table" t ON t.id = r."tableId"
-        JOIN "Base" b ON b.id = t."baseId"
-        WHERE b."ownerId" = $1 AND r."tableId" = $2
-        ${filterClause ? `AND (${filterClause})` : ""}
-      `;
-      const countResult = await ctx.db.$queryRawUnsafe<{ count: number }[]>(
-        countSql,
-        ...countParams,
-      );
-      const total = countResult[0]?.count ?? 0;
-
       const fetchParams = [...baseParams];
       const addFetchParam = (val: unknown) => {
         fetchParams.push(val);
@@ -445,16 +430,24 @@ export const tableRouter = createTRPCRouter({
           JOIN "Base" b ON b.id = t."baseId"
           WHERE b."ownerId" = $1 AND r."tableId" = $2
           ${filterClause ? `AND (${filterClause})` : ""}
+        ),
+        sorted AS (
+          SELECT r.id, COUNT(*) OVER() as total_count
+          FROM filtered r
+          ${joinClause}
+          ORDER BY ${orderClause}
+          LIMIT ${limitParam}
+          OFFSET ${offsetParam}
         )
-        SELECT r.id
-        FROM filtered r
-        ${joinClause}
-        ORDER BY ${orderClause}
-        LIMIT ${limitParam}
-        OFFSET ${offsetParam};
+        SELECT id, total_count FROM sorted;
       `;
 
-      const rows = await ctx.db.$queryRawUnsafe<{ id: string }[]>(recordsSql, ...fetchParams);
+      const rows = await ctx.db.$queryRawUnsafe<{ id: string; total_count: number }[]>(
+        recordsSql,
+        ...fetchParams,
+      );
+
+      const total = rows[0]?.total_count ?? 0;
       const sliced = rows.slice(0, limit);
       const nextCursor = rows.length > limit ? encodeCursor(offset + limit) : null;
       const recordIds = sliced.map((row) => row.id);
@@ -481,7 +474,7 @@ export const tableRouter = createTRPCRouter({
 
       return {
         records: orderedRecords,
-        nextCursor, 
+        nextCursor,
         total,
       };
     }),
@@ -682,17 +675,26 @@ export const tableRouter = createTRPCRouter({
           select: { id: true },
         });
 
-        if (recordIds.length) {
-          await tx.cell.deleteMany({
-            where: { recordId: { in: recordIds.map((r) => r.id) } },
-          });
-          await tx.record.deleteMany({ where: { tableId: input.tableId } });
+        const BATCH = 30000;
+        const recordIdList = recordIds.map((r) => r.id);
+        const fieldIdList = fieldIds.map((f) => f.id);
+
+        if (recordIdList.length) {
+          for (let i = 0; i < recordIdList.length; i += BATCH) {
+            const slice = recordIdList.slice(i, i + BATCH);
+            await tx.cell.deleteMany({ where: { recordId: { in: slice } } });
+            await tx.record.deleteMany({ where: { id: { in: slice } } });
+          }
         }
-        if (fieldIds.length) {
-          await tx.field.deleteMany({ where: { tableId: input.tableId } });
+
+        if (fieldIdList.length) {
+          await tx.cell.deleteMany({ where: { fieldId: { in: fieldIdList } } });
+          await tx.field.deleteMany({ where: { id: { in: fieldIdList } } });
         }
         await tx.table.delete({ where: { id: input.tableId } });
-      });
+      },
+      { timeout: 20000 },
+    );
 
       return { tableId: input.tableId, baseId: table.baseId };
     }),
@@ -779,7 +781,11 @@ export const tableRouter = createTRPCRouter({
       );
 
       if (cellsPayload.length) {
-        await ctx.db.cell.createMany({ data: cellsPayload });
+        const CHUNK_SIZE = 1000;
+        for (let i = 0; i < cellsPayload.length; i += CHUNK_SIZE) {
+          const chunk = cellsPayload.slice(i, i + CHUNK_SIZE);
+          await ctx.db.cell.createMany({ data: chunk, skipDuplicates: true });
+        }
       }
 
       const inserted = newRecords.length;

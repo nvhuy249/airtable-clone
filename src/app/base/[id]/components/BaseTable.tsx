@@ -407,13 +407,10 @@ export default function BaseTable({
     const node = scrollContainerRef.current;
     if (!node) return;
     const distanceFromBottom = node.scrollHeight - (node.scrollTop + node.clientHeight);
-    if (distanceFromBottom <= VIRTUAL_ROW_HEIGHT * 4) {
+    if (distanceFromBottom <= VIRTUAL_ROW_HEIGHT * 25) {
       onLoadMore();
     }
 
-    if (distanceFromBottom <= VIRTUAL_ROW_HEIGHT * 4) {
-      onLoadMore();
-    }
   }, [hasMore, isFetchingMore, onLoadMore]);
   const addRow = useCallback(() => {
     if (onAddRow) {
