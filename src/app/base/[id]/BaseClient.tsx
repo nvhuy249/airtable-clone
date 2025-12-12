@@ -751,14 +751,12 @@ export default function BaseClient({
         {/* BODY: view sidebar + table */}
         <div className="flex flex-1 overflow-hidden">
           {/* LEFT: view sidebar */}
-          <ViewSidebar />
+          <ViewSidebar loading={loading}/>
 
           {/* RIGHT: table + bottom bar */}
           <div className="flex flex-1 flex-col overflow-hidden">
             {loading ? (
-            <div className="flex flex-1 items-center justify-center text-sm text-gray-500">
-              Creating base…
-            </div>
+            <div className="flex flex-1 items-center justify-center text-sm text-gray-500"></div>
             ) : (
               <BaseTable
                 fields={tableQuery.data?.fields ?? []}

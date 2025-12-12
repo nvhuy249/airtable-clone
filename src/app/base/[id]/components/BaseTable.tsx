@@ -215,7 +215,7 @@ export default function BaseTable({
     const handleWheel = (e: WheelEvent) => {
       if (!e.cancelable) return;
       e.preventDefault();
-      node.scrollBy({ top: e.deltaY * 0.5, behavior: "auto" });
+      node.scrollBy({ top: e.deltaY * 0.25, behavior: "auto" });
     };
     node.addEventListener("wheel", handleWheel, { passive: false });
     return () => node.removeEventListener("wheel", handleWheel);
