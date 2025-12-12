@@ -6,9 +6,9 @@ import BaseClient from "./BaseClient";
 export default async function BasePage({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: { id: string };
 }) {
-  const { id } = await params;
+  const { id } = params;
 
   const session = await auth();
   if (!session) redirect("/login");
