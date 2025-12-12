@@ -58,7 +58,7 @@ export default function PageClient({ user, bases }: PageClientProps) {
         id: tempId,
         name,
         tables: [
-          { id: "temp-table-" + Date.now(), name: "Table 1" }
+          { id: "temp-table-", name: "Table 1" }
         ],
         ownerId: user.id,                     
         createdAt: new Date(),                
@@ -67,7 +67,6 @@ export default function PageClient({ user, bases }: PageClientProps) {
 
       const previous = basesState;
       setBasesState((prev) => [optimistic, ...prev]);
-      void router.push(`/base/${tempId}`);
 
       return { previous, tempId };
     },
