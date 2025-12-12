@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "src/server/**/*.ts": {
+      "regions": ["syd1"]
+    },
+    "src/trpc/**/*.ts": {
+      "regions": ["syd1"]
+    }
+  }
+}
