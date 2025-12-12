@@ -44,6 +44,7 @@ interface BaseClientProps {
     email?: string | null;
     image?: string | null;
   };
+  loading?: boolean;
 }
 
 type Table = {
@@ -56,6 +57,7 @@ export default function BaseClient({
   baseName,
   tables,
   user,
+  loading = false,
 }: BaseClientProps) {
   const userInitial =
     user?.name?.charAt(0)?.toUpperCase() ??
@@ -666,48 +668,79 @@ export default function BaseClient({
         </div>
 
         {/* TABLE HEADER STRIP = table switcher + toolbar */}
-        <TableTopBar
-          tables={tablesState}
-          activeTableId={activeTableId}
-          onChangeTable={setActiveTableId}
-          onAddTable={handleAddTable}
-          onRenameTable={handleRenameTable}
-          onDeleteTable={handleDeleteTable}
-        />
+        <div className={loading ? "pointer-events-none opacity-60" : ""}>
+          <TableTopBar
+            tables={loading ? [] : tablesState}
+            activeTableId={loading ? "" : activeTableId}
+            onChangeTable={setActiveTableId}
+            onAddTable={handleAddTable}
+            onRenameTable={handleRenameTable}
+            onDeleteTable={handleDeleteTable}
+          />
+        </div>
 
-        <TableToolbar
-          fields={tableQuery.data?.fields ?? []}
-          hiddenFieldIds={hiddenFieldIds}
-          filters={filters}
-          sorts={{ items: sortUi.items, auto: sortUi.auto }}
-          onSeedRows={(count) => {
-            if (!activeTableId || seedRecords.isPending) return;
-            const target = count || 100_000;
-            setSeedRemaining(target);
-            const firstChunk = Math.min(target, 1_000);
-            seedRecords.mutate({ tableId: activeTableId, count: firstChunk, chunkSize: 1_000 });
-          }}
-          isSeedingRows={seedRecords.isPending || seedRemaining > 0}
-          onToggleField={(fieldId) =>
-            setHiddenFieldIds((prev) =>
-              prev.includes(fieldId) ? prev.filter((id) => id !== fieldId) : [...prev, fieldId],
-            )
-          }
-          onHideAll={() => {
-            const ids = (tableQuery.data?.fields ?? []).map((f) => f.id);
-            setHiddenFieldIds(ids);
-          }}
-          onShowAll={() => setHiddenFieldIds([])}
-          onFiltersChange={setFilters}
-          onSortsChange={(next, commit) => {
-            setSortUi(next);
-            if (commit || next.auto) {
-              setAppliedSorts(next.items);
-            }
-          }}
-          globalSearch={globalSearch}
-          onGlobalSearchChange={setGlobalSearch}
-        />
+        <div className={loading ? "pointer-events-none opacity-60" : ""}>
+          <TableToolbar
+            fields={loading ? [] : tableQuery.data?.fields ?? []}
+            hiddenFieldIds={loading ? [] : hiddenFieldIds}
+            filters={loading ? { connector: "and", conditions: [] } : filters}
+            sorts={{ items: sortUi.items, auto: sortUi.auto }}
+
+            onSeedRows={(count) => {
+              if (loading) return;
+              if (!activeTableId || seedRecords.isPending) return;
+              const target = count || 100_000;
+              setSeedRemaining(target);
+              const firstChunk = Math.min(target, 1_000);
+              seedRecords.mutate({
+                tableId: activeTableId,
+                count: firstChunk,
+                chunkSize: 1_000,
+              });
+            }}
+
+            isSeedingRows={loading || seedRecords.isPending || seedRemaining > 0}
+
+            onToggleField={(fieldId) => {
+              if (loading) return;
+              setHiddenFieldIds((prev) =>
+                prev.includes(fieldId)
+                  ? prev.filter((id) => id !== fieldId)
+                  : [...prev, fieldId],
+              );
+            }}
+
+            onHideAll={() => {
+              if (loading) return;
+              const ids = (tableQuery.data?.fields ?? []).map((f) => f.id);
+              setHiddenFieldIds(ids);
+            }}
+
+            onShowAll={() => {
+              if (loading) return;
+              setHiddenFieldIds([]);
+            }}
+
+            onFiltersChange={(next) => {
+              if (loading) return;
+              setFilters(next);
+            }}
+
+            onSortsChange={(next, commit) => {
+              if (loading) return;
+              setSortUi(next);
+              if (commit || next.auto) {
+                setAppliedSorts(next.items);
+              }
+            }}
+
+            globalSearch={loading ? "" : globalSearch}
+            onGlobalSearchChange={(v) => {
+              if (loading) return;
+              setGlobalSearch(v);
+            }}
+          />
+        </div>
 
         {/* BODY: view sidebar + table */}
         <div className="flex flex-1 overflow-hidden">
@@ -716,58 +749,64 @@ export default function BaseClient({
 
           {/* RIGHT: table + bottom bar */}
           <div className="flex flex-1 flex-col overflow-hidden">
-            <BaseTable
-              fields={tableQuery.data?.fields ?? []}
-              records={records}
-              hiddenFieldIds={hiddenFieldIds}
-              isLoading={tableQuery.isLoading || isRecordsLoading}
-              hasMore={hasMore}
-              isFetchingMore={isFetchingMore}
-              onLoadMore={handleLoadMore}
-              totalCount={totalCount}
-              onCellChange={handleCellChange}
-              onAddColumn={(type = "TEXT", name) => {
-                if (!activeTableId || addField.isPending) return;
-                addField.mutate({
-                  tableId: activeTableId,
-              type,
-                  name,
-                });
-              }}
-              onAddRow={() => {
-                if (!activeTableId || addRecord.isPending) return;
-                addRecord.mutate({ tableId: activeTableId });
-              }}
-              onDeleteColumn={(fieldId) => {
-                if (!fieldId || deleteField.isPending) return;
-                if (fieldId.startsWith(OPTIMISTIC_FIELD_PREFIX)) {
-                  cancelledOptimisticFieldIds.current.add(fieldId);
-                  utils.table.byId.setData({ id: activeTableId }, (prev) => {
-                    if (!prev) return prev;
-                    const fields = prev.fields.filter((f) => f.id !== fieldId);
-                    const records = prev.records.map((record) => ({
-                      ...record,
-                      cells: record.cells.filter((c) => c.fieldId !== fieldId),
-                    }));
-                    return { ...prev, fields, records };
+            {loading ? (
+            <div className="flex flex-1 items-center justify-center text-sm text-gray-500">
+              Creating base…
+            </div>
+            ) : (
+              <BaseTable
+                fields={tableQuery.data?.fields ?? []}
+                records={records}
+                hiddenFieldIds={hiddenFieldIds}
+                isLoading={tableQuery.isLoading || isRecordsLoading}
+                hasMore={hasMore}
+                isFetchingMore={isFetchingMore}
+                onLoadMore={handleLoadMore}
+                totalCount={totalCount}
+                onCellChange={handleCellChange}
+                onAddColumn={(type = "TEXT", name) => {
+                  if (!activeTableId || addField.isPending) return;
+                  addField.mutate({
+                    tableId: activeTableId,
+                type,
+                    name,
                   });
-                  return;
-                }
-                deleteField.mutate({ fieldId });
-              }}
-              onDeleteRecords={(recordIds) => {
-                if (!recordIds?.length || deleteRecords.isPending || !activeTableId) return;
+                }}
+                onAddRow={() => {
+                  if (!activeTableId || addRecord.isPending) return;
+                  addRecord.mutate({ tableId: activeTableId });
+                }}
+                onDeleteColumn={(fieldId) => {
+                  if (!fieldId || deleteField.isPending) return;
+                  if (fieldId.startsWith(OPTIMISTIC_FIELD_PREFIX)) {
+                    cancelledOptimisticFieldIds.current.add(fieldId);
+                    utils.table.byId.setData({ id: activeTableId }, (prev) => {
+                      if (!prev) return prev;
+                      const fields = prev.fields.filter((f) => f.id !== fieldId);
+                      const records = prev.records.map((record) => ({
+                        ...record,
+                        cells: record.cells.filter((c) => c.fieldId !== fieldId),
+                      }));
+                      return { ...prev, fields, records };
+                    });
+                    return;
+                  }
+                  deleteField.mutate({ fieldId });
+                }}
+                onDeleteRecords={(recordIds) => {
+                  if (!recordIds?.length || deleteRecords.isPending || !activeTableId) return;
 
-                // ⭐ Pass the full array to backend
-                deleteRecords.mutate({ recordIds });
-              }}
-              onRenameColumn={(fieldId, name) => {
-                if (!activeTableId || renameField.isPending) return;
-                renameField.mutate({ fieldId, name });
-              }}
-              activeCellIndex={activeCellIndex}
-              onActiveCellIndexChange={setActiveCellIndex}
-            />
+                  // ⭐ Pass the full array to backend
+                  deleteRecords.mutate({ recordIds });
+                }}
+                onRenameColumn={(fieldId, name) => {
+                  if (!activeTableId || renameField.isPending) return;
+                  renameField.mutate({ fieldId, name });
+                }}
+                activeCellIndex={activeCellIndex}
+                onActiveCellIndexChange={setActiveCellIndex}
+              />
+            )}
           </div>
         </div>
       </div>

@@ -67,13 +67,13 @@ export default function PageClient({ user, bases }: PageClientProps) {
 
       const previous = basesState;
       setBasesState((prev) => [optimistic, ...prev]);
-      void router.push(`/base/${tempId}`);
+      void router.push(`/base/loading/page.tsx`);
 
       return { previous, tempId };
     },
 
     onError: (_e, _v, ctx) => {
-      if (ctx?.previous) setBasesState(ctx.previous);
+      if (ctx?.previous) setBasesState(ctx.previous);      
     },
 
     onSuccess: (realBase, _v, ctx) => {
@@ -99,10 +99,14 @@ export default function PageClient({ user, bases }: PageClientProps) {
 
   const handleCreateEmptyBase = () => {
     if (createBase.isPending) return;
+
+    setCreateOpen(false);
+    
+    void router.push("/base/loading");
+    
     createBase.mutate({
       name: "Untitled Base",
     });
-    setCreateOpen(false);
   };
 
   const handleDeleteBase = (id: string) => {
