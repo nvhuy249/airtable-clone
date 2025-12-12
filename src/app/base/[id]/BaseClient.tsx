@@ -8,9 +8,10 @@ import TableTopBar from "./components/TableTopBar";
 import TableToolbar from "./components/TableToolbar";
 import ViewSidebar from "./components/ViewSidebar";
 import BaseTable from "./components/BaseTable";
-import type { Condition as FilterCondition, SortItem, SortState, Operator } from "./components/TableToolbar";
+import type { Condition as FilterCondition, SortItem, SortState } from "./components/TableToolbar";
 import { api } from "~/trpc/react";
 import type { RouterOutputs } from "~/trpc/react";
+import { defaultViewConfig } from "~/server/viewConfig";
 
 type TableById = RouterOutputs["table"]["byId"];
 type TableField = TableById["fields"][number];
@@ -70,6 +71,7 @@ export default function BaseClient({
   const [activeTableId, setActiveTableId] = useState(
     tables[0]?.id ?? baseId,
   );
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
 
   const utils = api.useUtils();
   const tableQuery = api.table.byId.useQuery(
@@ -82,6 +84,52 @@ export default function BaseClient({
       staleTime: 60 * 1000,
     },
   );
+  const viewListQuery = api.view.list.useQuery(
+    { tableId: activeTableId },
+    {
+      enabled: isAuthed && !!Boolean(activeTableId) && !loading,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      staleTime: 60 * 1000,
+    },
+  );
+  const createView = api.view.create.useMutation({
+    onSuccess: (view) => {
+      setActiveViewId(view.id);
+      utils.view.list.setData({ tableId: view.tableId }, (prev) =>
+        prev ? [...prev, view] : [view],
+      );
+      if (recordsQueryInput) {
+        void utils.table.records.invalidate(recordsQueryInput);
+      }
+    },
+  });
+  const updateView = api.view.update.useMutation({
+    onSuccess: (view) => {
+      if (viewListQuery.data && activeTableId) {
+        utils.view.list.setData({ tableId: activeTableId }, (prev) =>
+          prev?.map((v) => (v.id === view.id ? { ...v, ...view } : v)) ?? prev,
+        );
+      }
+      if (recordsQueryInput) {
+        void utils.table.records.invalidate(recordsQueryInput);
+      }
+    },
+  });
+  const deleteView = api.view.delete.useMutation({
+    onSuccess: ({ viewId, tableId }) => {
+      utils.view.list.setData({ tableId }, (prev) =>
+        prev?.filter((v) => v.id !== viewId),
+      );
+      if (activeViewId === viewId) {
+        const remaining = viewListQuery.data?.filter((v) => v.id !== viewId) ?? [];
+        setActiveViewId(remaining[0]?.id ?? null);
+      }
+      if (recordsQueryInput) {
+        void utils.table.records.invalidate(recordsQueryInput);
+      }
+    },
+  });
   const [hiddenFieldIds, setHiddenFieldIds] = useState<string[]>([]);
   const cancelledOptimisticFieldIds = useRef<Set<string>>(new Set());
   const [filters, setFilters] = useState<{ connector: "and" | "or"; conditions: FilterCondition[] }>({
@@ -93,60 +141,142 @@ export default function BaseClient({
   const [globalSearch, setGlobalSearch] = useState("");
   const RECORD_PAGE_SIZE = 50;
 
-  const serializedFilters = useMemo(() => {
-    // base filters from toolbar
-    let final = {
-      connector: filters.connector,
-      conditions: filters.conditions.map(c => ({
-        fieldId: c.fieldId,
-        operator: c.operator,
-        value: c.value ?? ""
-      }))
-    };
+  const buildViewConfig = useCallback(
+    (overrides?: {
+      filters?: { connector: "and" | "or"; conditions: FilterCondition[] };
+      sorts?: SortItem[];
+      search?: string;
+      hiddenFieldIds?: string[];
+    }) => {
+      const nextFilters = overrides?.filters ?? filters;
+      const nextSorts = overrides?.sorts ?? appliedSorts;
+      const nextSearch = overrides?.search ?? globalSearch;
+      const nextHidden = overrides?.hiddenFieldIds ?? hiddenFieldIds;
 
-    if (globalSearch.trim() && tableQuery.data?.fields) {
-      const searchText = globalSearch.trim();
-
-      const searchConditions = tableQuery.data.fields.map((f) => ({
-        id: `global-${f.id}-${Date.now()}`,
-        fieldId: f.id,
-        operator: "contains" as Operator,
-        value: searchText,
-      }));
-
-      final = {
-        connector: "or",
-        conditions: [
-          ...final.conditions,
-          ...searchConditions,
-        ],
+      return {
+        filters: {
+          connector: nextFilters.connector,
+          conditions: nextFilters.conditions.map((c) => ({
+            fieldId: c.fieldId,
+            operator: c.operator,
+            value: c.value ?? "",
+          })),
+        },
+        sorts: nextSorts.map((s) => ({ fieldId: s.fieldId, direction: s.direction })),
+        search: nextSearch,
+        hiddenFieldIds: nextHidden,
       };
-    }
-
-    return final;
-  }, [filters, globalSearch, tableQuery.data?.fields]);
-
-  const serializedSorts = useMemo(
-    () => appliedSorts.map((s) => ({ fieldId: s.fieldId, direction: s.direction })),
-    [appliedSorts],
+    },
+    [appliedSorts, filters, globalSearch, hiddenFieldIds],
   );
+
+  const currentViewConfig = useMemo(() => buildViewConfig(), [buildViewConfig]);
 
   const recordsQueryInput = useMemo(() => {
     if (!activeTableId) return null;
     return {
       tableId: activeTableId,
       limit: RECORD_PAGE_SIZE,
-      filters: serializedFilters,
-      sorts: serializedSorts,
+      viewId: activeViewId ?? undefined,
+      viewConfig: currentViewConfig,
     };
-  }, [activeTableId, serializedFilters, serializedSorts]);
+  }, [RECORD_PAGE_SIZE, activeTableId, activeViewId, currentViewConfig]);
+
+  const activeView = useMemo(
+    () => viewListQuery.data?.find((v) => v.id === activeViewId),
+    [activeViewId, viewListQuery.data],
+  );
+
+  const duplicateView = useCallback(
+    (sourceId: string) => {
+      if (!activeTableId || createView.isPending) return;
+      const source = viewListQuery.data?.find((v) => v.id === sourceId);
+      if (!source) return;
+      createView.mutate({
+        tableId: activeTableId,
+        name: `${source.name} copy`,
+        config: source.config ?? defaultViewConfig,
+      });
+    },
+    [activeTableId, createView, viewListQuery.data],
+  );
+
+  useEffect(() => {
+    setFilters({ connector: "and", conditions: [] });
+    setSortUi({ items: [], auto: true });
+    setAppliedSorts([]);
+    setGlobalSearch("");
+    setHiddenFieldIds([]);
+    setActiveViewId(null);
+  }, [activeTableId]);
+
+  useEffect(() => {
+    if (!activeTableId || viewListQuery.isLoading) return;
+    const views = viewListQuery.data ?? [];
+
+    const hasActive = views.some((v) => v.id === activeViewId);
+    if (!hasActive) {
+      setActiveViewId(views[0]?.id ?? null);
+    }
+  }, [
+    activeTableId,
+    activeViewId,
+    viewListQuery.data,
+    viewListQuery.isLoading,
+  ]);
+
+  useEffect(() => {
+    if (!activeView) return;
+    const cfg = activeView.config ?? defaultViewConfig;
+
+    const nextFilters = {
+      connector: cfg.filters.connector,
+      conditions: cfg.filters.conditions.map((c, idx) => ({
+        id: `${c.fieldId}-${idx}`,
+        fieldId: c.fieldId,
+        operator: c.operator,
+        value: c.value ?? "",
+      })),
+    };
+
+    const nextSorts: SortItem[] = cfg.sorts.map((s, idx) => ({
+      id: `${s.fieldId}-${idx}`,
+      fieldId: s.fieldId,
+      direction: s.direction,
+    }));
+
+    setFilters((prev) => (JSON.stringify(prev) === JSON.stringify(nextFilters) ? prev : nextFilters));
+    setSortUi((prev) => {
+      const next = { ...prev, items: nextSorts, auto: false };
+      return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+    });
+    setAppliedSorts((prev) => (JSON.stringify(prev) === JSON.stringify(nextSorts) ? prev : nextSorts));
+    setGlobalSearch((prev) => (prev === (cfg.search ?? "") ? prev : cfg.search ?? ""));
+    setHiddenFieldIds((prev) => {
+      const next = cfg.hiddenFieldIds ?? [];
+      return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+    });
+  }, [activeView]);
+
+  const persistViewConfig = useCallback(
+    (overrides?: {
+      filters?: { connector: "and" | "or"; conditions: FilterCondition[] };
+      sorts?: SortItem[];
+      search?: string;
+      hiddenFieldIds?: string[];
+    }) => {
+      if (!activeViewId) return;
+      const nextConfig = buildViewConfig(overrides);
+      updateView.mutate({ viewId: activeViewId, config: nextConfig });
+    },
+    [activeViewId, buildViewConfig, updateView],
+  );
 
   const recordsQuery = api.table.records.useInfiniteQuery(
     recordsQueryInput ?? {
       tableId: "__inactive__",
       limit: RECORD_PAGE_SIZE,
-      filters: serializedFilters,
-      sorts: serializedSorts,
+      viewConfig: currentViewConfig,
     },
     {
       enabled:
@@ -222,10 +352,6 @@ export default function BaseClient({
     if (!hasMore || isFetchingMore) return;
     void fetchNextPage();
   }, [fetchNextPage, hasMore, isFetchingMore]);
-
-  useEffect(() => {
-    setHiddenFieldIds([]);
-  }, [activeTableId]);
 
   const createTable = api.table.create.useMutation({
     onMutate: async ({ name }) => {
@@ -687,6 +813,18 @@ export default function BaseClient({
 
         <div className={loading ? "pointer-events-none opacity-60" : ""}>
           <TableToolbar
+            viewName={activeView?.name ?? "Grid view"}
+            views={viewListQuery.data ?? []}
+            activeViewId={activeViewId ?? undefined}
+            onRenameViewAction={(viewId, name) => {
+              if (!viewId) return;
+              updateView.mutate({ viewId, name });
+            }}
+            onDeleteViewAction={(viewId) => {
+              if (!viewId || deleteView.isPending) return;
+              deleteView.mutate({ viewId });
+            }}
+            onDuplicateViewAction={(viewId) => duplicateView(viewId)}
             fields={loading ? [] : tableQuery.data?.fields ?? []}
             hiddenFieldIds={loading ? [] : hiddenFieldIds}
             filters={loading ? { connector: "and", conditions: [] } : filters}
@@ -709,27 +847,32 @@ export default function BaseClient({
 
             onToggleField={(fieldId) => {
               if (loading) return;
-              setHiddenFieldIds((prev) =>
-                prev.includes(fieldId)
+              setHiddenFieldIds((prev) => {
+                const next = prev.includes(fieldId)
                   ? prev.filter((id) => id !== fieldId)
-                  : [...prev, fieldId],
-              );
+                  : [...prev, fieldId];
+                persistViewConfig({ hiddenFieldIds: next });
+                return next;
+              });
             }}
 
             onHideAll={() => {
               if (loading) return;
               const ids = (tableQuery.data?.fields ?? []).map((f) => f.id);
               setHiddenFieldIds(ids);
+              persistViewConfig({ hiddenFieldIds: ids });
             }}
 
             onShowAll={() => {
               if (loading) return;
               setHiddenFieldIds([]);
+              persistViewConfig({ hiddenFieldIds: [] });
             }}
 
             onFiltersChange={(next) => {
               if (loading) return;
               setFilters(next);
+              persistViewConfig({ filters: next });
             }}
 
             onSortsChange={(next, commit) => {
@@ -737,6 +880,7 @@ export default function BaseClient({
               setSortUi(next);
               if (commit || next.auto) {
                 setAppliedSorts(next.items);
+                persistViewConfig({ sorts: next.items });
               }
             }}
 
@@ -744,6 +888,7 @@ export default function BaseClient({
             onGlobalSearchChange={(v) => {
               if (loading) return;
               setGlobalSearch(v);
+              persistViewConfig({ search: v });
             }}
           />
         </div>
@@ -751,7 +896,25 @@ export default function BaseClient({
         {/* BODY: view sidebar + table */}
         <div className="flex flex-1 overflow-hidden">
           {/* LEFT: view sidebar */}
-          <ViewSidebar loading={loading}/>
+          <ViewSidebar
+            loading={loading || viewListQuery.isLoading}
+            views={viewListQuery.data ?? []}
+            activeViewId={activeViewId}
+            onSelectViewAction={(viewId) => setActiveViewId(viewId)}
+            onDeleteViewAction={(viewId) => {
+              if (!viewId || deleteView.isPending) return;
+              deleteView.mutate({ viewId });
+            }}
+            onDuplicateViewAction={(viewId) => duplicateView(viewId)}
+            onCreateViewAction={() => {
+              if (!activeTableId || createView.isPending) return;
+              createView.mutate({
+                tableId: activeTableId,
+                name: "Grid view",
+                config: defaultViewConfig,
+              });
+            }}
+          />
 
           {/* RIGHT: table + bottom bar */}
           <div className="flex flex-1 flex-col overflow-hidden">

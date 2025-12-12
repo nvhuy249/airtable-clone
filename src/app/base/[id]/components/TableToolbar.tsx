@@ -7,7 +7,6 @@ import {
   EyeOff,
   Filter,
   LayoutGrid,
-  MoreHorizontal,
   Palette,
   Plus,
   Search,
@@ -24,11 +23,9 @@ interface TableToolbarProps {
   viewName?: string;
   views?: { id: string; name: string }[];
   activeViewId?: string;
-  onSelectView?: (id: string) => void;
-  onRenameView?: (id: string, name: string) => void;
-  onDeleteView?: (id: string) => void;
-  onDuplicateView?: (id: string) => void;
-  onCreateView?: () => void;
+  onRenameViewAction?: (id: string, name: string) => void;
+  onDeleteViewAction?: (id: string) => void;
+  onDuplicateViewAction?: (id: string) => void;
   fields: Field[];
   hiddenFieldIds: string[];
   onToggleField: (fieldId: string) => void;
@@ -84,11 +81,9 @@ export default function TableToolbar({
   viewName,
   views = [],
   activeViewId,
-  onSelectView,
-  onRenameView,
-  onDeleteView,
-  onDuplicateView,
-  onCreateView,
+  onRenameViewAction,
+  onDeleteViewAction,
+  onDuplicateViewAction,
   filters,
   onFiltersChange,
   sorts,
@@ -172,7 +167,7 @@ export default function TableToolbar({
     if (editingViewId) {
       const next = editingName.trim();
       if (next && next !== views.find((v) => v.id === editingViewId)?.name) {
-        onRenameView?.(editingViewId, next);
+        onRenameViewAction?.(editingViewId, next);
       }
     }
     setEditingViewId(null);
@@ -212,85 +207,87 @@ export default function TableToolbar({
 
   return (
     <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2 text-[13px]">
-      {/* left: Grid view pill */}
-      <button
-        ref={viewActionsTriggerRef}
-        type="button"
-        className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-gray-800 hover:bg-gray-50"
-        onClick={() => setViewActionsOpen((p) => !p)}
-        onDoubleClick={() => {
-          if (!activeViewId) return;
-          startEditing(activeViewId, viewName ?? "Grid view");
-        }}
-      >
-        <LayoutGrid className="h-3.5 w-3.5 text-gray-700" />
-        {editingViewId === activeViewId ? (
-          <input
-            autoFocus
-            value={editingName}
-            onChange={(e) => setEditingName(e.target.value)}
-            onBlur={commitEditing}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                commitEditing();
-              }
-              if (e.key === "Escape") {
-                setEditingViewId(null);
-                setEditingName("");
-              }
-            }}
-            className="w-32 rounded border border-gray-300 px-2 py-0.5 text-[13px] focus:outline-none"
-          />
-        ) : (
-          <span>{viewName ?? "Grid view"}</span>
-        )}
-        <ChevronDown className="h-3 w-3 text-gray-500" />
-      </button>
-      {viewActionsOpen && (
-        <div
-          ref={viewActionsRef}
-          className="absolute left-0 top-full z-40 mt-2 w-56 rounded-lg border border-gray-200 bg-white shadow-xl"
+      {/* left: Grid view pill + actions */}
+      <div className="relative inline-block">
+        <button
+          ref={viewActionsTriggerRef}
+          type="button"
+          className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-gray-800 hover:bg-gray-50"
+          onClick={() => setViewActionsOpen((p) => !p)}
+          onDoubleClick={() => {
+            if (!activeViewId) return;
+            startEditing(activeViewId, viewName ?? "Grid view");
+          }}
         >
-          <div className="px-3 py-2 text-[13px] text-gray-800 font-medium border-b">
-            {viewName ?? "Current view"}
+          <LayoutGrid className="h-3.5 w-3.5 text-gray-700" />
+          {editingViewId === activeViewId ? (
+            <input
+              autoFocus
+              value={editingName}
+              onChange={(e) => setEditingName(e.target.value)}
+              onBlur={commitEditing}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  commitEditing();
+                }
+                if (e.key === "Escape") {
+                  setEditingViewId(null);
+                  setEditingName("");
+                }
+              }}
+              className="w-32 rounded border border-gray-300 px-2 py-0.5 text-[13px] focus:outline-none"
+            />
+          ) : (
+            <span>{viewName ?? "Grid view"}</span>
+          )}
+          <ChevronDown className="h-3 w-3 text-gray-500" />
+        </button>
+        {viewActionsOpen && (
+          <div
+            ref={viewActionsRef}
+            className="absolute left-0 top-full z-40 mt-2 w-56 rounded-lg border border-gray-200 bg-white shadow-xl"
+          >
+            <div className="px-3 py-2 text-[13px] text-gray-800 font-medium border-b">
+              {viewName ?? "Current view"}
+            </div>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-gray-50 text-gray-800"
+              onClick={() => {
+                if (activeViewId && viewName) {
+                  startEditing(activeViewId, viewName);
+                }
+                setViewActionsOpen(false);
+              }}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+              <span>Rename view</span>
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-gray-50 text-gray-800"
+              onClick={() => {
+                if (activeViewId) onDuplicateViewAction?.(activeViewId);
+                setViewActionsOpen(false);
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>Duplicate view</span>
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-red-50 text-red-600"
+              onClick={() => {
+                if (activeViewId) onDeleteViewAction?.(activeViewId);
+                setViewActionsOpen(false);
+              }}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              <span>Delete view</span>
+            </button>
           </div>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-gray-50 text-gray-800"
-            onClick={() => {
-              if (activeViewId && viewName) {
-                startEditing(activeViewId, viewName);
-              }
-              setViewActionsOpen(false);
-            }}
-          >
-            <LayoutGrid className="h-3.5 w-3.5" />
-            <span>Rename view</span>
-          </button>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-gray-50 text-gray-800"
-            onClick={() => {
-              if (activeViewId) onDuplicateView?.(activeViewId);
-              setViewActionsOpen(false);
-            }}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span>Duplicate view</span>
-          </button>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-red-50 text-red-600"
-            onClick={() => {
-              if (activeViewId) onDeleteView?.(activeViewId);
-              setViewActionsOpen(false);
-            }}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            <span>Delete view</span>
-          </button>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* right: tools */}
       <div className="relative flex items-center gap-4 text-[13px] text-gray-600">

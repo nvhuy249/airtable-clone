@@ -4,35 +4,15 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { createTRPCRouter, protectedProcedure } from "../trpc";
+import {
+  defaultViewConfig,
+  parseViewConfig,
+  viewConfigSchema,
+  viewFiltersSchema,
+  viewSortSchema,
+} from "~/server/viewConfig";
 
 const NUMERIC_REGEX = "^-?\\d+(\\.\\d+)?$";
-
-const filterConditionSchema = z.object({
-  fieldId: z.string(),
-  operator: z.enum([
-    "contains",
-    "not_contains",
-    "is",
-    "is_not",
-    "is_empty",
-    "is_not_empty",
-    "greater_than",
-    "less_than",
-    "greater_than_or_equal",
-    "less_than_or_equal",
-  ]),
-  value: z.string().default(""),
-});
-
-const filtersSchema = z.object({
-  connector: z.enum(["and", "or"]).default("and"),
-  conditions: z.array(filterConditionSchema).default([]),
-});
-
-const sortItemSchema = z.object({
-  fieldId: z.string(),
-  direction: z.enum(["asc", "desc"]),
-});
 
 const decodeCursor = (cursor?: string | null) => {
   if (!cursor) return 0;
@@ -56,7 +36,7 @@ const buildNumberValueExpr = (alias: string) =>
   )`;
 
 const buildFilterClause = (
-  filters: z.infer<typeof filtersSchema>,
+  filters: z.infer<typeof viewFiltersSchema>,
   addParam: (val: unknown) => string,
   fieldLookup: Record<string, { type: FieldType }>,
 ) => {
@@ -196,7 +176,7 @@ const buildFilterClause = (
 };
 
 const buildSortClause = (
-  sorts: z.infer<typeof sortItemSchema>[],
+  sorts: z.infer<typeof viewSortSchema>[],
   addParam: (val: unknown) => string,
   fieldLookup: Record<string, { type: FieldType }>,
 ) => {
@@ -400,9 +380,12 @@ export const tableRouter = createTRPCRouter({
         tableId: z.string(),
         limit: z.number().int().min(1).max(200).default(50),
         cursor: z.string().nullish(),
-        filters: filtersSchema.default({ connector: "and", conditions: [] }),
-        sorts: z.array(sortItemSchema).default([]),
+        filters: viewFiltersSchema.default({ connector: "and", conditions: [] }),
+        sorts: z.array(viewSortSchema).default([]),
         globalSearch: z.string().optional(),
+        viewId: z.string().optional(),
+        viewConfig: viewConfigSchema.optional(),
+        hiddenFieldIds: z.array(z.string()).optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -422,6 +405,33 @@ export const tableRouter = createTRPCRouter({
         (acc, field) => ({ ...acc, [field.id]: { type: field.type } }),
         {},
       );
+      const fieldIds = new Set(fields.map((f) => f.id));
+
+      const baseConfig = {
+        filters: input.filters ?? defaultViewConfig.filters,
+        sorts: input.sorts ?? defaultViewConfig.sorts,
+        search: input.globalSearch ?? defaultViewConfig.search,
+        hiddenFieldIds: input.hiddenFieldIds ?? defaultViewConfig.hiddenFieldIds,
+      };
+
+      let effectiveConfig = parseViewConfig(input.viewConfig ?? baseConfig);
+
+      if (input.viewId) {
+        const view = await ctx.db.view.findFirst({
+          where: {
+            id: input.viewId,
+            table: { id: input.tableId, base: { ownerId: ctx.session.user.id } },
+          },
+          select: { id: true, config: true },
+        });
+
+        if (view) {
+          effectiveConfig = parseViewConfig(view.config);
+        }
+        // If view is missing or unauthorized, silently fall back to provided config/defaults.
+      }
+
+      const hiddenFieldIds = (effectiveConfig.hiddenFieldIds ?? []).filter((id) => fieldIds.has(id));
 
       const limit = input.limit ?? 50;
       const offset = decodeCursor(input.cursor) ?? 0;
@@ -433,10 +443,10 @@ export const tableRouter = createTRPCRouter({
         return `$${baseParams.length}`;
       };
 
-      let filterClause = buildFilterClause(input.filters, addBaseParam, fieldLookup);
+      let filterClause = buildFilterClause(effectiveConfig.filters, addBaseParam, fieldLookup);
 
-      if (input.globalSearch && input.globalSearch.trim() !== "") {
-        const searchParam = addBaseParam(input.globalSearch.toLowerCase());
+      if (effectiveConfig.search && effectiveConfig.search.trim() !== "") {
+        const searchParam = addBaseParam(effectiveConfig.search.toLowerCase());
 
         // MATCHES ANY CELL IN THE TABLE
         const globalSearchClause = `
@@ -463,11 +473,7 @@ export const tableRouter = createTRPCRouter({
         return `$${fetchParams.length}`;
       };
 
-      const { joinClause, orderClause } = buildSortClause(
-        input.sorts,
-        addFetchParam,
-        fieldLookup,
-      );
+      const { joinClause, orderClause } = buildSortClause(effectiveConfig.sorts, addFetchParam, fieldLookup);
       const limitParam = addFetchParam(limitPlusOne);
       const offsetParam = addFetchParam(offset);
 
@@ -506,6 +512,7 @@ export const tableRouter = createTRPCRouter({
         select: {
           id: true,
           cells: {
+            where: hiddenFieldIds.length ? { fieldId: { notIn: hiddenFieldIds } } : undefined,
             select: {
               id: true,
               recordId: true,
