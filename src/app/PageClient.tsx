@@ -7,6 +7,7 @@ import BaseCard from "./components/BaseCard";
 import Banner from "./components/Banner";
 import QuickActions from "./components/QuickActions";
 import CreateBaseModal from "./components/CreateBaseModal";
+import { useRouter } from "next/router";
 import { signOut } from "next-auth/react";
 import { api } from "~/trpc/react"; 
 
@@ -38,6 +39,8 @@ export default function PageClient({ user, bases }: PageClientProps) {
   const [view, setView] = useState<"grid" | "list">("grid");
   const [basesState, setBasesState] = useState<Base[]>(bases);
 
+  const router = useRouter();
+
   // Sidebar expand logic
   const expanded = sidebarOpen || sidebarHover;
 
@@ -57,13 +60,14 @@ export default function PageClient({ user, bases }: PageClientProps) {
         tables: [
           { id: "temp-table-" + Date.now(), name: "Table 1" }
         ],
-        ownerId: user.id,                     // ADD THIS
-        createdAt: new Date(),                // ADD
-        updatedAt: new Date(),                // ADD
+        ownerId: user.id,                     
+        createdAt: new Date(),                
+        updatedAt: new Date(),                
       };
 
       const previous = basesState;
       setBasesState((prev) => [optimistic, ...prev]);
+      router.push(`/base/${tempId}`);
 
       return { previous, tempId };
     },
@@ -78,6 +82,7 @@ export default function PageClient({ user, bases }: PageClientProps) {
           b.id === ctx.tempId ? realBase : b
         )
       );
+      router.replace(`/base/${realBase.id}`);
     },
   });
 
@@ -93,9 +98,11 @@ export default function PageClient({ user, bases }: PageClientProps) {
   });
 
   const handleCreateEmptyBase = () => {
+    if (createBase.isPending) return;
     createBase.mutate({
       name: "Untitled Base",
     });
+    setCreateOpen(false);
   };
 
   const handleDeleteBase = (id: string) => {
