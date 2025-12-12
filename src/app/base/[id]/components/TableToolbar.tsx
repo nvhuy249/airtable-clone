@@ -7,7 +7,9 @@ import {
   EyeOff,
   Filter,
   LayoutGrid,
+  MoreHorizontal,
   Palette,
+  Plus,
   Search,
   Share2,
   Table,
@@ -19,6 +21,14 @@ import {
 type Field = { id: string; name: string; order: number; type?: "TEXT" | "NUMBER" };
 
 interface TableToolbarProps {
+  viewName?: string;
+  views?: { id: string; name: string }[];
+  activeViewId?: string;
+  onSelectView?: (id: string) => void;
+  onRenameView?: (id: string, name: string) => void;
+  onDeleteView?: (id: string) => void;
+  onDuplicateView?: (id: string) => void;
+  onCreateView?: () => void;
   fields: Field[];
   hiddenFieldIds: string[];
   onToggleField: (fieldId: string) => void;
@@ -71,6 +81,14 @@ export default function TableToolbar({
   onToggleField,
   onHideAll,
   onShowAll,
+  viewName,
+  views = [],
+  activeViewId,
+  onSelectView,
+  onRenameView,
+  onDeleteView,
+  onDuplicateView,
+  onCreateView,
   filters,
   onFiltersChange,
   sorts,
@@ -81,11 +99,16 @@ export default function TableToolbar({
   onGlobalSearchChange,
 }: TableToolbarProps) {
   const [open, setOpen] = useState(false);
+  const [viewActionsOpen, setViewActionsOpen] = useState(false);
+  const [editingViewId, setEditingViewId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
   const [localFilters, setLocalFilters] = useState(filters);
   const [localSorts, setLocalSorts] = useState<SortState>(sorts);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const viewActionsRef = useRef<HTMLDivElement | null>(null);
+  const viewActionsTriggerRef = useRef<HTMLButtonElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const filterRef = useRef<HTMLDivElement | null>(null);
   const filterTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -106,6 +129,12 @@ export default function TableToolbar({
         return;
       }
       if (
+        viewActionsRef.current?.contains(e.target as Node) ||
+        viewActionsTriggerRef.current?.contains(e.target as Node)
+      ) {
+        return;
+      }
+      if (
         filterRef.current?.contains(e.target as Node) ||
         filterTriggerRef.current?.contains(e.target as Node)
       ) {
@@ -118,6 +147,7 @@ export default function TableToolbar({
         return;
       }
       setOpen(false);
+      setViewActionsOpen(false);
       setFilterOpen(false);
       setSortOpen(false);
     };
@@ -132,6 +162,22 @@ export default function TableToolbar({
   useEffect(() => {
     setLocalSorts(sorts);
   }, [sorts]);
+
+  const startEditing = (id: string, name: string) => {
+    setEditingViewId(id);
+    setEditingName(name);
+  };
+
+  const commitEditing = () => {
+    if (editingViewId) {
+      const next = editingName.trim();
+      if (next && next !== views.find((v) => v.id === editingViewId)?.name) {
+        onRenameView?.(editingViewId, next);
+      }
+    }
+    setEditingViewId(null);
+    setEditingName("");
+  };
 
   const isHidden = (id: string) => hiddenFieldIds.includes(id);
   const commitFilters = (next: typeof localFilters) => {
@@ -168,13 +214,83 @@ export default function TableToolbar({
     <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2 text-[13px]">
       {/* left: Grid view pill */}
       <button
+        ref={viewActionsTriggerRef}
         type="button"
-        className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-1 text-[13px] text-gray-900 shadow-sm hover:bg-gray-50"
+        className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-gray-800 hover:bg-gray-50"
+        onClick={() => setViewActionsOpen((p) => !p)}
+        onDoubleClick={() => {
+          if (!activeViewId) return;
+          startEditing(activeViewId, viewName ?? "Grid view");
+        }}
       >
         <LayoutGrid className="h-3.5 w-3.5 text-gray-700" />
-        <span>Grid view</span>
+        {editingViewId === activeViewId ? (
+          <input
+            autoFocus
+            value={editingName}
+            onChange={(e) => setEditingName(e.target.value)}
+            onBlur={commitEditing}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                commitEditing();
+              }
+              if (e.key === "Escape") {
+                setEditingViewId(null);
+                setEditingName("");
+              }
+            }}
+            className="w-32 rounded border border-gray-300 px-2 py-0.5 text-[13px] focus:outline-none"
+          />
+        ) : (
+          <span>{viewName ?? "Grid view"}</span>
+        )}
         <ChevronDown className="h-3 w-3 text-gray-500" />
       </button>
+      {viewActionsOpen && (
+        <div
+          ref={viewActionsRef}
+          className="absolute left-0 top-full z-40 mt-2 w-56 rounded-lg border border-gray-200 bg-white shadow-xl"
+        >
+          <div className="px-3 py-2 text-[13px] text-gray-800 font-medium border-b">
+            {viewName ?? "Current view"}
+          </div>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-gray-50 text-gray-800"
+            onClick={() => {
+              if (activeViewId && viewName) {
+                startEditing(activeViewId, viewName);
+              }
+              setViewActionsOpen(false);
+            }}
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+            <span>Rename view</span>
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-gray-50 text-gray-800"
+            onClick={() => {
+              if (activeViewId) onDuplicateView?.(activeViewId);
+              setViewActionsOpen(false);
+            }}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>Duplicate view</span>
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-red-50 text-red-600"
+            onClick={() => {
+              if (activeViewId) onDeleteView?.(activeViewId);
+              setViewActionsOpen(false);
+            }}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            <span>Delete view</span>
+          </button>
+        </div>
+      )}
 
       {/* right: tools */}
       <div className="relative flex items-center gap-4 text-[13px] text-gray-600">
