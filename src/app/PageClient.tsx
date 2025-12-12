@@ -7,7 +7,7 @@ import BaseCard from "./components/BaseCard";
 import Banner from "./components/Banner";
 import QuickActions from "./components/QuickActions";
 import CreateBaseModal from "./components/CreateBaseModal";
-import { useRouter } from "next/router";
+import { useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { api } from "~/trpc/react"; 
 
