@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSession } from "next-auth/react";
 import Image from "next/image";
 import AppRail from "./components/AppRail";
 import TableTopBar from "./components/TableTopBar";
@@ -59,6 +60,8 @@ export default function BaseClient({
   user,
   loading = false,
 }: BaseClientProps) {
+  const { status } = useSession();
+  const isAuthed = status === "authenticated";
   const userInitial =
     user?.name?.charAt(0)?.toUpperCase() ??
     user?.email?.charAt(0)?.toUpperCase() ??
@@ -72,7 +75,7 @@ export default function BaseClient({
   const tableQuery = api.table.byId.useQuery(
     { id: activeTableId },
     {
-      enabled: Boolean(activeTableId),
+      enabled: isAuthed && !!Boolean(activeTableId) && !loading,
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
       refetchOnMount: false,
@@ -146,7 +149,10 @@ export default function BaseClient({
       sorts: serializedSorts,
     },
     {
-      enabled: Boolean(recordsQueryInput),
+      enabled:
+        Boolean(recordsQueryInput) &&
+        isAuthed &&
+        !loading,
       getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
@@ -162,7 +168,7 @@ export default function BaseClient({
     },
     [recordsQuery.data?.pages]
   );
-  const totalCount = recordsQuery.data?.pages[0]?.total ?? undefined;
+  const totalCount = recordsQuery.data?.pages[0]?.total ?? 0;
   const hasMore = Boolean(recordsQuery.hasNextPage);
   const isFetchingMore = recordsQuery.isFetchingNextPage;
   const isRecordsLoading = recordsQuery.isLoading || recordsQuery.isFetchingNextPage;
