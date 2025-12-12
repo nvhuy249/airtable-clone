@@ -67,7 +67,7 @@ export default function PageClient({ user, bases }: PageClientProps) {
 
       const previous = basesState;
       setBasesState((prev) => [optimistic, ...prev]);
-      void router.push(`/base/loading/page.tsx`);
+      void router.push(`/base/loading`);
 
       return { previous, tempId };
     },
