@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 import BaseCard from "./components/BaseCard";
@@ -81,6 +81,14 @@ export default function PageClient({ user, bases }: PageClientProps) {
     const pending = pendingDeletedRef.current;
     return bases.filter((b) => !pending.has(b.id));
   });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const pending = loadPendingDeleted();
+    if (!pending.size) return;
+    pendingDeletedRef.current = pending;
+    setBasesState((prev) => prev.filter((b) => !pending.has(b.id)));
+  }, []);
 
   const router = useRouter();
 
