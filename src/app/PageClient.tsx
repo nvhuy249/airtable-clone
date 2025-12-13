@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 import BaseCard from "./components/BaseCard";
@@ -8,7 +8,6 @@ import Banner from "./components/Banner";
 import QuickActions from "./components/QuickActions";
 import CreateBaseModal from "./components/CreateBaseModal";
 import { useRouter } from "next/navigation";
-import { signOut } from "next-auth/react";
 import { api } from "~/trpc/react"; 
 
 import type { Base } from "./components/BaseCard";
@@ -30,6 +29,46 @@ const FILTERS = [
   { label: "Anytime", value: "any" },
 ];
 
+const PENDING_DELETED_KEY = "airtable:pending-deleted-bases";
+const PENDING_DELETED_TTL = 5 * 60 * 1000; // 5 minutes
+
+type PendingDelete = { id: string; ts: number };
+
+const loadPendingDeleted = (): Map<string, number> => {
+  if (typeof window === "undefined") return new Map();
+  try {
+    const raw = window.localStorage.getItem(PENDING_DELETED_KEY);
+    if (!raw) return new Map();
+    const parsed = JSON.parse(raw) as PendingDelete[];
+    const now = Date.now();
+    const map = new Map<string, number>();
+    for (const entry of parsed) {
+      if (!entry?.id || typeof entry.ts !== "number") continue;
+      if (now - entry.ts < PENDING_DELETED_TTL) {
+        map.set(entry.id, entry.ts);
+      }
+    }
+    // prune stale entries if needed
+    if (map.size !== parsed.length) {
+      const arr = Array.from(map.entries()).map(([id, ts]) => ({ id, ts }));
+      window.localStorage.setItem(PENDING_DELETED_KEY, JSON.stringify(arr));
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+};
+
+const persistPendingDeleted = (map: Map<string, number>) => {
+  if (typeof window === "undefined") return;
+  const arr = Array.from(map.entries()).map(([id, ts]) => ({ id, ts }));
+  try {
+    window.localStorage.setItem(PENDING_DELETED_KEY, JSON.stringify(arr));
+  } catch {
+    // ignore storage failures
+  }
+};
+
 export default function PageClient({ user, bases }: PageClientProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarHover, setSidebarHover] = useState(false);
@@ -37,7 +76,11 @@ export default function PageClient({ user, bases }: PageClientProps) {
 
   const [filter, setFilter] = useState("any");
   const [view, setView] = useState<"grid" | "list">("grid");
-  const [basesState, setBasesState] = useState<Base[]>(bases);
+  const pendingDeletedRef = useRef<Map<string, number>>(loadPendingDeleted());
+  const [basesState, setBasesState] = useState<Base[]>(() => {
+    const pending = pendingDeletedRef.current;
+    return bases.filter((b) => !pending.has(b.id));
+  });
 
   const router = useRouter();
 
@@ -87,13 +130,21 @@ export default function PageClient({ user, bases }: PageClientProps) {
   });
 
   const deleteBase = api.base.delete.useMutation({
-    onMutate: async ({ id }): Promise<{ prev: Base[] }> => {
+    onMutate: async ({ id }): Promise<{ prev: Base[]; id: string }> => {
       const prev = basesState;
+      pendingDeletedRef.current.set(id, Date.now());
+      persistPendingDeleted(pendingDeletedRef.current);
       setBasesState((old) => old.filter((b) => b.id !== id));
-      return { prev };
+      return { prev, id };
     },
     onError: (_err, _vars, ctx) => {
+      if (ctx?.id) pendingDeletedRef.current.delete(ctx.id);
+      persistPendingDeleted(pendingDeletedRef.current);
       if (ctx?.prev) setBasesState(ctx.prev);
+    },
+    onSuccess: (_data, vars) => {
+      pendingDeletedRef.current.delete(vars.id);
+      persistPendingDeleted(pendingDeletedRef.current);
     },
   });
 
@@ -226,14 +277,6 @@ export default function PageClient({ user, bases }: PageClientProps) {
         onClose={() => setCreateOpen(false)}
         onCreateEmptyBase={handleCreateEmptyBase}
       />
-
-      {/* SIGN OUT BUTTON */}
-      <button
-        onClick={() => signOut()}
-        className="fixed bottom-4 right-4 z-[9999] bg-red-500 text-white px-3 py-1 rounded shadow hover:bg-red-600"
-      >
-        Sign out
-      </button>
     </div>
   );
 }

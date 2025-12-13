@@ -1131,12 +1131,19 @@ export default function BaseTable({
     }
   }, [contextMenu]);
 
-  const loadedCount = data.length;
+  const loadedCount = records?.length ?? 0;
+  const formatNumber = useCallback((n: number) => n.toLocaleString(), []);
+  const totalLabel = totalCount ? formatNumber(totalCount) : null;
+  const loadedLabel = formatNumber(loadedCount);
   const statusText = isLoading
     ? "Loading records..."
-    : hasMore
-      ? `Loaded ${loadedCount}${totalCount ? ` of ${totalCount}` : ""}`
-      : `Showing ${loadedCount}${totalCount ? ` of ${totalCount}` : ""}`;
+    : totalLabel
+      ? hasMore
+        ? `Loaded ${loadedLabel} / ${totalLabel} records`
+        : `Showing ${loadedLabel} of ${totalLabel} records`
+      : hasMore
+        ? `Loaded ${loadedLabel}`
+        : `Showing ${loadedLabel}`;
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden" ref={tableWrapperRef}>

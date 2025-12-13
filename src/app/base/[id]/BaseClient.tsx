@@ -54,6 +54,13 @@ type Table = {
   name: string;
 };
 
+type PersistedState = {
+  tableId?: string;
+  viewByTable?: Record<string, string>;
+};
+
+const buildStorageKey = (baseId: string) => `airtable:last-state:${baseId}`;
+
 export default function BaseClient({
   baseId,
   baseName,
@@ -72,12 +79,16 @@ export default function BaseClient({
     tables[0]?.id ?? baseId,
   );
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
+  const isOptimisticTableId = activeTableId?.startsWith("temp-table-") ?? false;
+  const storageKey = useMemo(() => buildStorageKey(baseId), [baseId]);
+  const hasHydratedRef = useRef(false);
+  const persistedViewMapRef = useRef<Record<string, string>>({});
 
   const utils = api.useUtils();
   const tableQuery = api.table.byId.useQuery(
     { id: activeTableId },
     {
-      enabled: isAuthed && !!Boolean(activeTableId) && !loading,
+      enabled: isAuthed && !!Boolean(activeTableId) && !loading && !isOptimisticTableId,
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
       refetchOnMount: false,
@@ -87,7 +98,7 @@ export default function BaseClient({
   const viewListQuery = api.view.list.useQuery(
     { tableId: activeTableId },
     {
-      enabled: isAuthed && !!Boolean(activeTableId) && !loading,
+      enabled: isAuthed && !!Boolean(activeTableId) && !loading && !isOptimisticTableId,
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
       staleTime: 60 * 1000,
@@ -173,14 +184,14 @@ export default function BaseClient({
   const currentViewConfig = useMemo(() => buildViewConfig(), [buildViewConfig]);
 
   const recordsQueryInput = useMemo(() => {
-    if (!activeTableId) return null;
+    if (!activeTableId || isOptimisticTableId) return null;
     return {
       tableId: activeTableId,
       limit: RECORD_PAGE_SIZE,
       viewId: activeViewId ?? undefined,
       viewConfig: currentViewConfig,
     };
-  }, [RECORD_PAGE_SIZE, activeTableId, activeViewId, currentViewConfig]);
+  }, [RECORD_PAGE_SIZE, activeTableId, activeViewId, currentViewConfig, isOptimisticTableId]);
 
   const activeView = useMemo(
     () => viewListQuery.data?.find((v) => v.id === activeViewId),
@@ -202,6 +213,30 @@ export default function BaseClient({
   );
 
   useEffect(() => {
+    if (hasHydratedRef.current) return;
+    if (typeof window === "undefined") return;
+
+    hasHydratedRef.current = true;
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as PersistedState;
+      persistedViewMapRef.current = parsed.viewByTable ?? {};
+
+      const storedTableId = parsed.tableId;
+      if (storedTableId && tablesState.some((t) => t.id === storedTableId)) {
+        setActiveTableId(storedTableId);
+        const storedViewId = parsed.viewByTable?.[storedTableId];
+        if (storedViewId) {
+          setActiveViewId(storedViewId);
+        }
+      }
+    } catch {
+      // If parsing fails, ignore and continue with defaults.
+    }
+  }, [storageKey, tablesState]);
+
+  useEffect(() => {
     setFilters({ connector: "and", conditions: [] });
     setSortUi({ items: [], auto: true });
     setAppliedSorts([]);
@@ -211,11 +246,25 @@ export default function BaseClient({
   }, [activeTableId]);
 
   useEffect(() => {
+    const storedViewId = persistedViewMapRef.current[activeTableId];
+    if (storedViewId) {
+      setActiveViewId(storedViewId);
+    }
+  }, [activeTableId]);
+
+  useEffect(() => {
     if (!activeTableId || viewListQuery.isLoading) return;
     const views = viewListQuery.data ?? [];
+    const storedViewId = persistedViewMapRef.current[activeTableId];
+    const storedExists = storedViewId ? views.some((v) => v.id === storedViewId) : false;
+    const hasActive = activeViewId ? views.some((v) => v.id === activeViewId) : false;
+    const nextStoredViewId = storedExists ? storedViewId : null;
 
-    const hasActive = views.some((v) => v.id === activeViewId);
     if (!hasActive) {
+      if (nextStoredViewId) {
+        setActiveViewId(nextStoredViewId);
+        return;
+      }
       setActiveViewId(views[0]?.id ?? null);
     }
   }, [
@@ -257,6 +306,28 @@ export default function BaseClient({
       return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
     });
   }, [activeView]);
+
+  useEffect(() => {
+    if (!activeTableId) return;
+
+    const hasActiveView = viewListQuery.data?.some((v) => v.id === activeViewId) ?? false;
+    const nextViewByTable = hasActiveView && activeViewId
+      ? { ...persistedViewMapRef.current, [activeTableId]: activeViewId }
+      : persistedViewMapRef.current;
+
+    persistedViewMapRef.current = nextViewByTable;
+
+    if (typeof window === "undefined") return;
+    const payload: PersistedState = {
+      tableId: activeTableId,
+      viewByTable: nextViewByTable,
+    };
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(payload));
+    } catch {
+      // Ignore storage errors (e.g., quota exceeded or disabled storage).
+    }
+  }, [activeTableId, activeViewId, storageKey, viewListQuery.data]);
 
   const persistViewConfig = useCallback(
     (overrides?: {
@@ -365,6 +436,7 @@ export default function BaseClient({
       const previous = tablesState;
 
       setTablesState((prev) => [...prev, optimistic]);
+      setActiveTableId(tempId);
 
       return { previous, tempId };
     },
@@ -751,6 +823,63 @@ export default function BaseClient({
   };
 
   const [activeCellIndex, setActiveCellIndex] = useState<[number, number] | null>(null);
+
+  if (loading) {
+    return (
+      <div className="flex h-screen bg-[#f7f7fb]">
+        {/* LEFT APP RAIL */}
+        <AppRail userInitial={userInitial} />
+
+        {/* RIGHT MAIN AREA */}
+        <div className="flex flex-1 flex-col overflow-hidden">
+          {/* TOP BAR */}
+          <div className="flex items-center justify-between px-5 py-3 border border-gray-200 bg-white">
+            <div className="flex items-center gap-3 min-w-[220px]">
+              <Image
+                src="/airtable-logo.png"
+                alt="Airtable logo"
+                width={28}
+                height={28}
+                className="h-7 w-7 rounded border border-gray-300 p-1 cursor-pointer"
+                onClick={() => (window.location.href = "/")}
+                priority
+              />
+              <div className="font-semibold text-sm">{baseName}</div>
+            </div>
+            <div className="flex-1 flex justify-center">
+              <div className="flex gap-5 text-sm text-gray-600">
+                <span className="font-semibold text-[#2557e0]">Data</span>
+                <span>Automations</span>
+                <span>Interfaces</span>
+                <span>Forms</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <button className="rounded-full bg-[#2557e0] px-3 py-1 text-white text-xs">Share</button>
+              <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-sm text-gray-600">
+                {userInitial}
+              </div>
+            </div>
+          </div>
+
+          {/* TABLE TABS ONLY */}
+          <TableTopBar
+            tables={tablesState}
+            activeTableId={activeTableId}
+            onChangeTable={() => undefined}
+            onAddTable={() => undefined}
+            onRenameTable={() => undefined}
+            onDeleteTable={() => undefined}
+          />
+
+          {/* LOADING BODY */}
+          <div className="flex flex-1 items-center justify-center text-sm text-gray-500">
+            Preparing your base...
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-[#f7f7fb]">
