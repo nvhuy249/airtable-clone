@@ -83,6 +83,8 @@ interface BaseTableProps {
   fields: FieldShape[];
   records: RecordShape[];
   hiddenFieldIds?: string[];
+  filteredFieldIds?: string[];
+  sortedFieldIds?: string[];
   isLoading?: boolean;
   hasMore?: boolean;
   isFetchingMore?: boolean;
@@ -93,6 +95,7 @@ interface BaseTableProps {
   onAddRow?: () => void;
   onDeleteColumn?: (fieldId: string) => void;
   onDeleteRecords?: (recordIds: string[]) => void;
+  searchTerm?: string;
   onCellChange?: (recordId: string, fieldId: string, value: string | number | null) => void;
   activeCellIndex?: [number, number] | null;
   onActiveCellIndexChange?: (coords: [number, number] | null) => void;
@@ -144,6 +147,9 @@ export default function BaseTable({
   fields,
   records,
   hiddenFieldIds = [],
+  filteredFieldIds = [],
+  sortedFieldIds = [],
+  searchTerm = "",
   isLoading,
   hasMore = false,
   isFetchingMore = false,
@@ -540,6 +546,28 @@ export default function BaseTable({
     });
     return lookup;
   }, [localRecords]);
+
+  const normalizedSearchTerm = (searchTerm ?? "").trim().toLowerCase();
+  const filteredFieldIdSet = useMemo(() => new Set(filteredFieldIds), [filteredFieldIds]);
+  const sortedFieldIdSet = useMemo(() => new Set(sortedFieldIds), [sortedFieldIds]);
+  const highlightedCellKeys = useMemo(() => {
+    if (!normalizedSearchTerm) return new Set<string>();
+    const matches = new Set<string>();
+
+    localRecords.forEach((record) => {
+      record.cells.forEach((cell) => {
+        const field = fieldLookup[cell.fieldId];
+        if (!field) return;
+        const value = readCellValue(field, cell);
+        if (value == null) return;
+        if (String(value).toLowerCase().includes(normalizedSearchTerm)) {
+          matches.add(`${record.id}:${cell.fieldId}`);
+        }
+      });
+    });
+
+    return matches;
+  }, [fieldLookup, localRecords, normalizedSearchTerm]);
 
   const visibleColumnOrder = useMemo(
     () => columnOrder.filter((id) => !hiddenSet.has(id)),
@@ -1172,13 +1200,20 @@ export default function BaseTable({
                   const headerHover =
                     hoveredHeader === header.id ? "bg-[#eef0f5]" : "";
                   const isFieldHeader = columnOrder.includes(header.id);
+                  const isFilterColumn = isFieldHeader && filteredFieldIdSet.has(header.id);
+                  const isSortColumn = isFieldHeader && sortedFieldIdSet.has(header.id);
+                  const headerHighlight = isFilterColumn
+                    ? "bg-emerald-50"
+                    : isSortColumn
+                      ? "bg-orange-50"
+                      : "";
                   const showArrow =
                     isFieldHeader &&
                     (hoveredHeader === header.id || headerMenu === header.id);
                   return (
                     <th
                       key={header.id}
-                      className={`relative border-b border-r border-gray-200 text-left text-xs font-medium text-gray-600 ${widthClass(header.id)} ${headerHover}`}
+                      className={`relative border-b border-r border-gray-200 text-left text-xs font-medium text-gray-600 ${widthClass(header.id)} ${headerHover} ${headerHighlight}`}
                       onMouseEnter={() => setHoveredHeader(header.id)}
                       onMouseLeave={() => {
                         setHoveredHeader(null);
@@ -1258,19 +1293,32 @@ export default function BaseTable({
                   onMouseLeave={() => setHoveredRow(null)}
                   style={{ height: VIRTUAL_ROW_HEIGHT }}
                 >
-                  {row.getVisibleCells().map((cell) => (
-                    <td
-                      key={cell.id}
-                      className={`border-b border-r border-gray-200 align-middle ${widthClass(cell.column.id)}`}
-                    >
-                      <div className="px-1 py-[2px] text-sm hover:bg-[#f5f6fa]">
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext(),
-                        )}
-                      </div>
-                    </td>
-                  ))}
+                  {row.getVisibleCells().map((cell) => {
+                    const cellKey = `${recordId}:${cell.column.id}`;
+                    const isFilterColumn = filteredFieldIdSet.has(cell.column.id);
+                    const isSortColumn = sortedFieldIdSet.has(cell.column.id);
+                    const isHighlighted = highlightedCellKeys.has(cellKey);
+                    const highlightClass = isHighlighted
+                      ? "bg-amber-200 hover:bg-amber-200"
+                      : isFilterColumn
+                        ? "bg-emerald-50 hover:bg-emerald-100"
+                        : isSortColumn
+                          ? "bg-orange-50 hover:bg-orange-100"
+                          : "hover:bg-[#f5f6fa]";
+                    return (
+                      <td
+                        key={cell.id}
+                        className={`border-b border-r border-gray-200 align-middle ${widthClass(cell.column.id)}`}
+                      >
+                        <div className={`px-1 py-[2px] text-sm ${highlightClass}`}>
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )}
+                        </div>
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}

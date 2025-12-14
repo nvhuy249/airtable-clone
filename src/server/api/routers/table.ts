@@ -414,7 +414,8 @@ export const tableRouter = createTRPCRouter({
         hiddenFieldIds: input.hiddenFieldIds ?? defaultViewConfig.hiddenFieldIds,
       };
 
-      let effectiveConfig = parseViewConfig(input.viewConfig ?? baseConfig);
+      const providedConfig = input.viewConfig ? parseViewConfig(input.viewConfig) : null;
+      let effectiveConfig = providedConfig ?? parseViewConfig(baseConfig);
 
       if (input.viewId) {
         const view = await ctx.db.view.findFirst({
@@ -426,7 +427,12 @@ export const tableRouter = createTRPCRouter({
         });
 
         if (view) {
-          effectiveConfig = parseViewConfig(view.config);
+          const storedConfig = parseViewConfig(view.config);
+          // Prefer the latest client-side view config (for instant filter/sort UX),
+          // but fall back to the persisted view for anything the client didn't send.
+          effectiveConfig = providedConfig
+            ? { ...storedConfig, ...providedConfig }
+            : storedConfig;
         }
         // If view is missing or unauthorized, silently fall back to provided config/defaults.
       }
@@ -443,29 +449,8 @@ export const tableRouter = createTRPCRouter({
         return `$${baseParams.length}`;
       };
 
-      let filterClause = buildFilterClause(effectiveConfig.filters, addBaseParam, fieldLookup);
-
-      if (effectiveConfig.search && effectiveConfig.search.trim() !== "") {
-        const searchParam = addBaseParam(effectiveConfig.search.toLowerCase());
-
-        // MATCHES ANY CELL IN THE TABLE
-        const globalSearchClause = `
-          EXISTS (
-            SELECT 1
-            FROM "Cell" gc
-            WHERE gc."recordId" = r.id
-              AND LOWER(COALESCE(gc."valueText", gc."valueNumber"::text, ''))
-                  LIKE '%' || ${searchParam} || '%'
-          )
-        `;
-
-        // Combine with existing filter clause
-        if (filterClause) {
-          filterClause = `(${filterClause}) AND (${globalSearchClause})`;
-        } else {
-          filterClause = globalSearchClause;
-        }
-      }
+      const filterClause = buildFilterClause(effectiveConfig.filters, addBaseParam, fieldLookup);
+      // Global search is handled client-side for highlighting; keep all rows here.
 
       const fetchParams = [...baseParams];
       const addFetchParam = (val: unknown) => {
@@ -810,41 +795,48 @@ export const tableRouter = createTRPCRouter({
 
       const totalToInsert = Math.min(input.count, 100_000);
       const chunkSize = Math.min(input.chunkSize ?? 1_000, 5_000);
-      const batchSize = Math.min(totalToInsert, chunkSize);
+      let inserted = 0;
 
-      const newRecords = await ctx.db.record.createManyAndReturn({
-        data: Array.from({ length: batchSize }).map(() => ({
-          tableId: table.id,
-        })),
-        select: { id: true },
-      });
+      while (inserted < totalToInsert) {
+        const batchSize = Math.min(chunkSize, totalToInsert - inserted);
 
-      const cellsPayload = newRecords.flatMap((record) =>
-        fields.map((field) => ({
-          recordId: record.id,
-          fieldId: field.id,
-          valueText:
-            field.type === FieldType.NUMBER
-              ? null
-              : field.name.toLowerCase().includes("name")
-                ? faker.person.fullName()
-                : faker.lorem.sentence(4),
-          valueNumber:
-            field.type === FieldType.NUMBER
-              ? faker.number.int({ min: 1, max: 1000 })
-              : null,
-        })),
-      );
+        const newRecords = await ctx.db.record.createManyAndReturn({
+          data: Array.from({ length: batchSize }).map(() => ({
+            tableId: table.id,
+          })),
+          select: { id: true },
+        });
 
-      if (cellsPayload.length) {
-        const CHUNK_SIZE = 1000;
-        for (let i = 0; i < cellsPayload.length; i += CHUNK_SIZE) {
-          const chunk = cellsPayload.slice(i, i + CHUNK_SIZE);
-          await ctx.db.cell.createMany({ data: chunk, skipDuplicates: true });
+        if (newRecords.length === 0) break;
+
+        const cellsPayload = newRecords.flatMap((record) =>
+          fields.map((field) => ({
+            recordId: record.id,
+            fieldId: field.id,
+            valueText:
+              field.type === FieldType.NUMBER
+                ? null
+                : field.name.toLowerCase().includes("name")
+                  ? faker.person.fullName()
+                  : faker.lorem.sentence(4),
+            valueNumber:
+              field.type === FieldType.NUMBER
+                ? faker.number.int({ min: 1, max: 1000 })
+                : null,
+          })),
+        );
+
+        if (cellsPayload.length) {
+          const CHUNK_SIZE = 1000;
+          for (let i = 0; i < cellsPayload.length; i += CHUNK_SIZE) {
+            const chunk = cellsPayload.slice(i, i + CHUNK_SIZE);
+            await ctx.db.cell.createMany({ data: chunk, skipDuplicates: true });
+          }
         }
+
+        inserted += newRecords.length;
       }
 
-      const inserted = newRecords.length;
       const remaining = Math.max(totalToInsert - inserted, 0);
 
       return { inserted, remaining };

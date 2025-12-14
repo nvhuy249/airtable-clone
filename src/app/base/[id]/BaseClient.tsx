@@ -80,6 +80,16 @@ type PersistedState = {
 
 const buildStorageKey = (baseId: string) => `airtable:last-state:${baseId}`;
 
+const serializeFilters = (f: { connector: "and" | "or"; conditions: FilterCondition[] }) =>
+  JSON.stringify({
+    connector: f.connector,
+    conditions: f.conditions.map((c) => ({
+      fieldId: c.fieldId,
+      operator: c.operator,
+      value: c.value ?? "",
+    })),
+  });
+
 export default function BaseClient({
   baseId,
   baseName,
@@ -105,6 +115,9 @@ export default function BaseClient({
   const pendingCellEditsRef = useRef<Map<string, PendingCellEdit>>(new Map());
   const optimisticRecordIdMapRef = useRef<Map<string, string>>(new Map());
   const optimisticFieldIdMapRef = useRef<Map<string, string>>(new Map());
+  const shouldRefetchRecordsRef = useRef(true);
+  const lastSearchByViewRef = useRef<Record<string, string>>({});
+  const lastFiltersByViewRef = useRef<Record<string, string>>({});
 
   const logPendingState = useCallback((..._args: unknown[]) => undefined, []);
 
@@ -140,15 +153,19 @@ export default function BaseClient({
     },
   });
   const updateView = api.view.update.useMutation({
-    onSuccess: (view) => {
+    onMutate: () => ({ shouldRefetchRecords: shouldRefetchRecordsRef.current }),
+    onSuccess: (view, _variables, context) => {
       if (viewListQuery.data && activeTableId) {
         utils.view.list.setData({ tableId: activeTableId }, (prev) =>
           prev?.map((v) => (v.id === view.id ? { ...v, ...view } : v)) ?? prev,
         );
       }
-      if (recordsQueryInput) {
+      if (context?.shouldRefetchRecords && recordsQueryInput) {
         void utils.table.records.invalidate(recordsQueryInput);
       }
+    },
+    onSettled: () => {
+      shouldRefetchRecordsRef.current = true;
     },
   });
   const deleteView = api.view.delete.useMutation({
@@ -171,10 +188,15 @@ export default function BaseClient({
     connector: "and",
     conditions: [],
   });
+  const [appliedFilters, setAppliedFilters] = useState<{
+    connector: "and" | "or";
+    conditions: FilterCondition[];
+  }>({ connector: "and", conditions: [] });
   const [sortUi, setSortUi] = useState<SortState>({ items: [], auto: true });
   const [appliedSorts, setAppliedSorts] = useState<SortItem[]>([]);
   const [globalSearch, setGlobalSearch] = useState("");
   const RECORD_PAGE_SIZE = 100;
+  const filterDebounceHandleRef = useRef<number | null>(null);
 
   const buildViewConfig = useCallback(
     (overrides?: {
@@ -205,7 +227,23 @@ export default function BaseClient({
     [appliedSorts, filters, globalSearch, hiddenFieldIds],
   );
 
-  const currentViewConfig = useMemo(() => buildViewConfig(), [buildViewConfig]);
+  const buildQueryViewConfig = useCallback(() => {
+    return {
+      filters: {
+        connector: appliedFilters.connector,
+        conditions: appliedFilters.conditions.map((c) => ({
+          fieldId: c.fieldId,
+          operator: c.operator,
+          value: c.value ?? "",
+        })),
+      },
+      sorts: appliedSorts.map((s) => ({ fieldId: s.fieldId, direction: s.direction })),
+      search: "",
+      hiddenFieldIds,
+    };
+  }, [appliedFilters, appliedSorts, hiddenFieldIds]);
+
+  const queryViewConfig = useMemo(() => buildQueryViewConfig(), [buildQueryViewConfig]);
 
   const recordsQueryInput = useMemo(() => {
     if (!activeTableId || isOptimisticTableId) return null;
@@ -213,9 +251,9 @@ export default function BaseClient({
       tableId: activeTableId,
       limit: RECORD_PAGE_SIZE,
       viewId: activeViewId ?? undefined,
-      viewConfig: currentViewConfig,
+      viewConfig: queryViewConfig,
     };
-  }, [RECORD_PAGE_SIZE, activeTableId, activeViewId, currentViewConfig, isOptimisticTableId]);
+  }, [RECORD_PAGE_SIZE, activeTableId, activeViewId, isOptimisticTableId, queryViewConfig]);
 
   const activeView = useMemo(
     () => viewListQuery.data?.find((v) => v.id === activeViewId),
@@ -262,6 +300,7 @@ export default function BaseClient({
 
   useEffect(() => {
     setFilters({ connector: "and", conditions: [] });
+    setAppliedFilters({ connector: "and", conditions: [] });
     setSortUi({ items: [], auto: true });
     setAppliedSorts([]);
     setGlobalSearch("");
@@ -318,18 +357,64 @@ export default function BaseClient({
       direction: s.direction,
     }));
 
-    setFilters((prev) => (JSON.stringify(prev) === JSON.stringify(nextFilters) ? prev : nextFilters));
+    const serializedNextFilters = serializeFilters(nextFilters);
+    const serializedLocalFilters = serializeFilters(filters);
+    const lastLocalFilters = lastFiltersByViewRef.current[activeView.id];
+    const hasNewerLocalFilters =
+      lastLocalFilters !== undefined &&
+      lastLocalFilters === serializedNextFilters &&
+      serializedNextFilters !== serializedLocalFilters;
+    const isStaleServerFilters =
+      lastLocalFilters !== undefined && lastLocalFilters !== serializedNextFilters;
+
+    if (!hasNewerLocalFilters && !isStaleServerFilters) {
+      setFilters((prev) => {
+        const prevSerialized = serializeFilters(prev);
+        if (prevSerialized === serializedNextFilters) return prev;
+        lastFiltersByViewRef.current[activeView.id] = serializedNextFilters;
+        return nextFilters;
+      });
+      setAppliedFilters((prev) => {
+        const prevSerialized = serializeFilters(prev);
+        if (prevSerialized === serializedNextFilters) return prev;
+        return {
+          connector: nextFilters.connector,
+          conditions: nextFilters.conditions.map((c) => ({ ...c })),
+        };
+      });
+    }
+
     setSortUi((prev) => {
-      const next = { ...prev, items: nextSorts, auto: false };
+      const nextAuto = prev.auto ?? true;
+      const next = { ...prev, items: nextSorts, auto: nextAuto };
       return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
     });
     setAppliedSorts((prev) => (JSON.stringify(prev) === JSON.stringify(nextSorts) ? prev : nextSorts));
-    setGlobalSearch((prev) => (prev === (cfg.search ?? "") ? prev : cfg.search ?? ""));
+    const nextSearch = cfg.search ?? "";
+    const lastLocalSearch = lastSearchByViewRef.current[activeView.id];
+    const isServerEchoOfLocal = lastLocalSearch !== undefined && lastLocalSearch === nextSearch;
+    const hasNewerLocalValue = isServerEchoOfLocal && nextSearch !== globalSearch;
+    const isStaleServerSearch = lastLocalSearch !== undefined && lastLocalSearch !== nextSearch;
+
+    if (!hasNewerLocalValue && !isStaleServerSearch) {
+      setGlobalSearch((prev) => {
+        lastSearchByViewRef.current[activeView.id] = nextSearch;
+        return prev === nextSearch ? prev : nextSearch;
+      });
+    }
     setHiddenFieldIds((prev) => {
       const next = cfg.hiddenFieldIds ?? [];
       return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
     });
-  }, [activeView]);
+  }, [activeView, filters, globalSearch]);
+
+  useEffect(() => {
+    return () => {
+      if (filterDebounceHandleRef.current) {
+        window.clearTimeout(filterDebounceHandleRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!activeTableId) return;
@@ -359,19 +444,35 @@ export default function BaseClient({
       sorts?: SortItem[];
       search?: string;
       hiddenFieldIds?: string[];
-    }) => {
+    }, options?: { skipRecordRefresh?: boolean }) => {
       if (!activeViewId) return;
       const nextConfig = buildViewConfig(overrides);
+      if (overrides?.filters) {
+        lastFiltersByViewRef.current[activeViewId] = serializeFilters(overrides.filters);
+      }
+      shouldRefetchRecordsRef.current = !(options?.skipRecordRefresh ?? false);
       updateView.mutate({ viewId: activeViewId, config: nextConfig });
     },
     [activeViewId, buildViewConfig, updateView],
   );
 
+  useEffect(() => {
+    if (!activeViewId) return;
+    const next = globalSearch;
+    const last = lastSearchByViewRef.current[activeViewId];
+    if (last === next) return;
+    const handle = window.setTimeout(() => {
+      lastSearchByViewRef.current[activeViewId] = next;
+      persistViewConfig({ search: next }, { skipRecordRefresh: true });
+    }, 350);
+    return () => window.clearTimeout(handle);
+  }, [activeViewId, globalSearch, persistViewConfig]);
+
   const recordsQuery = api.table.records.useInfiniteQuery(
     recordsQueryInput ?? {
       tableId: "__inactive__",
       limit: RECORD_PAGE_SIZE,
-      viewConfig: currentViewConfig,
+      viewConfig: queryViewConfig,
     },
     {
       enabled:
@@ -1092,6 +1193,7 @@ export default function BaseClient({
             activeViewId={activeViewId ?? undefined}
             onRenameViewAction={(viewId, name) => {
               if (!viewId) return;
+              shouldRefetchRecordsRef.current = false;
               updateView.mutate({ viewId, name });
             }}
             onDeleteViewAction={(viewId) => {
@@ -1109,11 +1211,10 @@ export default function BaseClient({
               if (!activeTableId || seedRecords.isPending) return;
               const target = count || 100_000;
               setSeedRemaining(target);
-              const firstChunk = Math.min(target, 1_000);
               seedRecords.mutate({
                 tableId: activeTableId,
-                count: firstChunk,
-                chunkSize: 1_000,
+                count: target,
+                chunkSize: 5_000,
               });
             }}
 
@@ -1146,23 +1247,32 @@ export default function BaseClient({
             onFiltersChange={(next) => {
               if (loading) return;
               setFilters(next);
-              persistViewConfig({ filters: next });
+              if (filterDebounceHandleRef.current) {
+                window.clearTimeout(filterDebounceHandleRef.current);
+              }
+              filterDebounceHandleRef.current = window.setTimeout(() => {
+                setAppliedFilters(next);
+                persistViewConfig({ filters: next }, { skipRecordRefresh: true });
+              }, 300);
             }}
 
             onSortsChange={(next, commit) => {
               if (loading) return;
               setSortUi(next);
-              if (commit || next.auto) {
-                setAppliedSorts(next.items);
-                persistViewConfig({ sorts: next.items });
+              const shouldApply = (commit ?? false) || next.auto;
+              if (!shouldApply) {
+                // Keep table in default order while the user edits manual sorts.
+                setAppliedSorts([]);
+                return;
               }
+              setAppliedSorts(next.items);
+              persistViewConfig({ sorts: next.items }, { skipRecordRefresh: true });
             }}
 
             globalSearch={loading ? "" : globalSearch}
             onGlobalSearchChange={(v) => {
               if (loading) return;
               setGlobalSearch(v);
-              persistViewConfig({ search: v });
             }}
           />
         </div>
@@ -1195,12 +1305,22 @@ export default function BaseClient({
             {loading ? (
             <div className="flex flex-1 items-center justify-center text-sm text-gray-500"></div>
             ) : (
-              <BaseTable
-                fields={tableQuery.data?.fields ?? []}
-                records={records}
-                hiddenFieldIds={hiddenFieldIds}
-                isLoading={tableQuery.isLoading || isRecordsLoading}
-                hasMore={hasMore}
+            <BaseTable
+              fields={tableQuery.data?.fields ?? []}
+              records={records}
+              hiddenFieldIds={hiddenFieldIds}
+              filteredFieldIds={appliedFilters.conditions
+                .filter((c) => {
+                  const val = (c.value ?? "").trim();
+                  const op = c.operator;
+                  const isEmptyCheck = op === "is_empty" || op === "is_not_empty";
+                  return isEmptyCheck || val.length > 0;
+                })
+                .map((c) => c.fieldId)}
+              sortedFieldIds={appliedSorts.map((s) => s.fieldId)}
+              searchTerm={globalSearch}
+              isLoading={tableQuery.isLoading || isRecordsLoading}
+              hasMore={hasMore}
                 isFetchingMore={isFetchingMore}
                 onLoadMore={handleLoadMore}
                 totalCount={totalCount}

@@ -349,7 +349,10 @@ export default function TableToolbar({
             placeholder="Search table..."
             className="border rounded px-2 py-1 text-[13px] w-40 focus:w-64 transition-all"
             value={globalSearch}
-            onChange={(e) => onGlobalSearchChange(e.target.value)}
+            onChange={(e) => {
+              const next = e.target.value;
+              onGlobalSearchChange(next);
+            }}
           />
           <Search className="absolute right-2 top-1.5 h-3.5 w-3.5 text-gray-400" />
         </div>
@@ -447,7 +450,7 @@ export default function TableToolbar({
                           items: [{ id: `sort-${Date.now()}`, fieldId: field.id, direction: "asc" }],
                         };
                         setLocalSorts(next);
-                        if (localSorts.auto) onSortsChange(next, true);
+                        onSortsChange(next, next.auto);
                       }}
                     >
                       <span className="text-gray-500">
@@ -521,7 +524,8 @@ export default function TableToolbar({
                             items: localSorts.items.filter((s) => s.id !== item.id),
                           };
                             setLocalSorts(next);
-                            if (localSorts.auto) onSortsChange(next, true);
+                            const shouldCommit = localSorts.auto || next.items.length === 0;
+                            if (shouldCommit) onSortsChange(next, shouldCommit);
                           }}
                         >
                           <Trash2 className="h-4 w-4" />
@@ -560,7 +564,7 @@ export default function TableToolbar({
                   onChange={(e) => {
                 const next: SortState = { ...localSorts, auto: e.target.checked };
                     setLocalSorts(next);
-                    if (next.auto) onSortsChange(next, true);
+                    onSortsChange(next, next.auto);
                   }}
                   className="rounded border-gray-300 text-blue-600"
                 />
