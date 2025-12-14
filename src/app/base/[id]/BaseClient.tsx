@@ -1246,6 +1246,9 @@ export default function BaseClient({
 
             onFiltersChange={(next) => {
               if (loading) return;
+              if (activeViewId) {
+                lastFiltersByViewRef.current[activeViewId] = serializeFilters(next);
+              }
               setFilters(next);
               if (filterDebounceHandleRef.current) {
                 window.clearTimeout(filterDebounceHandleRef.current);
