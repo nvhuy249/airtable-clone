@@ -314,7 +314,6 @@ export default function BaseTable({
   useEffect(() => {
     const useFields = [...(fields ?? DEFAULT_FIELDS)].sort((a, b) => a.order - b.order);
     const useRecords = records ?? DEFAULT_RECORDS;
-
     const fieldsChanged = !shallowFieldsEqual(appliedFieldsRef.current, useFields);
     const recordsChanged =
       appliedRecordsRef.current.length !== useRecords.length ||
@@ -409,7 +408,7 @@ export default function BaseTable({
     const node = scrollContainerRef.current;
     if (!node) return;
     const distanceFromBottom = node.scrollHeight - (node.scrollTop + node.clientHeight);
-    if (distanceFromBottom <= VIRTUAL_ROW_HEIGHT * 25) {
+    if (distanceFromBottom <= VIRTUAL_ROW_HEIGHT * 50) {
       onLoadMore();
     }
 
@@ -823,6 +822,13 @@ export default function BaseTable({
                       copy[rowIndex] = { ...current, [key]: nextValue };
                       return copy;
                     });
+                    // For optimistic rows/fields, commit immediately so edits are queued before IDs swap.
+                    if (recordId.startsWith("temp-") || String(key).startsWith("temp-")) {
+                      const normalized = normalizeValueForField(nextValue, field);
+                      if (normalized !== undefined && _onCellChange) {
+                        _onCellChange(recordId, key, normalized);
+                      }
+                    }
                   }}
                   onBlur={(e) => {
                     commitChange();

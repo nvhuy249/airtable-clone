@@ -17,6 +17,11 @@ type TableById = RouterOutputs["table"]["byId"];
 type TableField = TableById["fields"][number];
 type TableRecord = TableById["records"][number];
 type TableCell = TableRecord["cells"][number];
+type PendingCellEdit = {
+  recordId: string;
+  fieldId: string;
+  value: string | number | null;
+};
 
 const makeEmptyCell = (recordId: string, fieldId: string): TableCell => ({
   id: `temp-cell-${recordId}-${fieldId}`,
@@ -25,8 +30,22 @@ const makeEmptyCell = (recordId: string, fieldId: string): TableCell => ({
   valueText: null,
   valueNumber: null,
 });
+const buildOptimisticCell = (
+  recordId: string,
+  fieldId: string,
+  value: string | number | null,
+): TableCell => ({
+  id: `temp-cell-${recordId}-${fieldId}`,
+  recordId,
+  fieldId,
+  valueText: typeof value === "number" ? null : value ?? null,
+  valueNumber: typeof value === "number" ? value : null,
+});
 
 const OPTIMISTIC_FIELD_PREFIX = "temp-field-";
+const makePendingKey = (recordId: string, fieldId: string) => `${recordId}:${fieldId}`;
+const isOptimisticRecordId = (id: string) => id.startsWith("temp-record-");
+const isOptimisticFieldId = (id: string) => id.startsWith(OPTIMISTIC_FIELD_PREFIX);
 
 // const makeEmptyRecord = (fields: TableField[]): TableRecord => {
 //   const recordId = `temp-record-${Date.now()}`;
@@ -83,6 +102,11 @@ export default function BaseClient({
   const storageKey = useMemo(() => buildStorageKey(baseId), [baseId]);
   const hasHydratedRef = useRef(false);
   const persistedViewMapRef = useRef<Record<string, string>>({});
+  const pendingCellEditsRef = useRef<Map<string, PendingCellEdit>>(new Map());
+  const optimisticRecordIdMapRef = useRef<Map<string, string>>(new Map());
+  const optimisticFieldIdMapRef = useRef<Map<string, string>>(new Map());
+
+  const logPendingState = useCallback((..._args: unknown[]) => undefined, []);
 
   const utils = api.useUtils();
   const tableQuery = api.table.byId.useQuery(
@@ -150,7 +174,7 @@ export default function BaseClient({
   const [sortUi, setSortUi] = useState<SortState>({ items: [], auto: true });
   const [appliedSorts, setAppliedSorts] = useState<SortItem[]>([]);
   const [globalSearch, setGlobalSearch] = useState("");
-  const RECORD_PAGE_SIZE = 50;
+  const RECORD_PAGE_SIZE = 100;
 
   const buildViewConfig = useCallback(
     (overrides?: {
@@ -532,13 +556,11 @@ export default function BaseClient({
       await utils.table.records.cancel(recordsQueryInput);
       const previous = utils.table.records.getInfiniteData(recordsQueryInput);
 
-      const optimisticCell: TableCell = {
-        id: `temp-cell-${variables.recordId}-${variables.fieldId}`,
-        recordId: variables.recordId,
-        fieldId: variables.fieldId,
-        valueText: typeof variables.value === "number" ? null : (variables.value as string | null) ?? null,
-        valueNumber: typeof variables.value === "number" ? variables.value : null,
-      };
+      const optimisticCell = buildOptimisticCell(
+        variables.recordId,
+        variables.fieldId,
+        variables.value as string | number | null,
+      );
       applyCellToCache(variables.recordId, optimisticCell);
 
       return { previous };
@@ -552,6 +574,72 @@ export default function BaseClient({
       applyCellToCache(cell.recordId, cell);
     },
   });
+
+  const resolveRecordId = useCallback(
+    (recordId: string) => optimisticRecordIdMapRef.current.get(recordId) ?? recordId,
+    [],
+  );
+  const resolveFieldId = useCallback(
+    (fieldId: string) => optimisticFieldIdMapRef.current.get(fieldId) ?? fieldId,
+    [],
+  );
+
+  const rekeyPendingEdits = useCallback(
+    (transform: (edit: PendingCellEdit) => PendingCellEdit | null) => {
+      const next = new Map<string, PendingCellEdit>();
+      pendingCellEditsRef.current.forEach((edit) => {
+        const updated = transform(edit);
+        if (!updated) return;
+        next.set(makePendingKey(updated.recordId, updated.fieldId), updated);
+      });
+      pendingCellEditsRef.current = next;
+      logPendingState("rekey-pending", { count: next.size });
+    },
+    [logPendingState],
+  );
+
+  const queuePendingCellEdit = useCallback(
+    (recordId: string, fieldId: string, value: string | number | null) => {
+      pendingCellEditsRef.current.set(makePendingKey(recordId, fieldId), {
+        recordId,
+        fieldId,
+        value,
+      });
+      const optimisticCell = buildOptimisticCell(recordId, fieldId, value);
+      applyCellToCache(recordId, optimisticCell);
+      logPendingState("queued-edit", { recordId, fieldId, value });
+    },
+    [applyCellToCache, logPendingState],
+  );
+
+  const flushPendingCellEdits = useCallback(() => {
+    logPendingState("flush-start");
+    pendingCellEditsRef.current.forEach((edit, key) => {
+      const recordId = resolveRecordId(edit.recordId);
+      const fieldId = resolveFieldId(edit.fieldId);
+      if (isOptimisticRecordId(recordId) || isOptimisticFieldId(fieldId)) {
+        logPendingState("flush-skip-optimistic", { recordId, fieldId });
+        return;
+      }
+
+      pendingCellEditsRef.current.delete(key);
+
+      logPendingState("flush-commit", { recordId, fieldId, value: edit.value });
+      updateCell.mutate(
+        { recordId, fieldId, value: edit.value },
+        {
+          onError: () => {
+            pendingCellEditsRef.current.set(makePendingKey(recordId, fieldId), {
+              recordId,
+              fieldId,
+              value: edit.value,
+            });
+            logPendingState("flush-error-requeued", { recordId, fieldId });
+          },
+        },
+      );
+    });
+  }, [logPendingState, resolveFieldId, resolveRecordId, updateCell]);
 
   const addField = api.table.addField.useMutation({
     onMutate: async (variables) => {
@@ -580,18 +668,36 @@ export default function BaseClient({
       });
 
       utils.table.byId.setData({ id: variables.tableId }, { ...previous, fields, records });
+      logPendingState("add-field-optimistic", { optimisticFieldId });
 
       return { previous, tableId: variables.tableId, optimisticFieldId };
     },
     onError: (_err, _variables, context) => {
       if (!context?.previous || !context.tableId) return;
       utils.table.byId.setData({ id: context.tableId }, context.previous);
+      if (context.optimisticFieldId) {
+        optimisticFieldIdMapRef.current.delete(context.optimisticFieldId);
+        rekeyPendingEdits((edit) =>
+          edit.fieldId === context.optimisticFieldId ? null : edit,
+        );
+        logPendingState("add-field-error-cleared", { optimisticFieldId: context.optimisticFieldId });
+      }
     },
     onSuccess: ({ field }, _variables, context) => {
       if (!context?.tableId) return;
       if (context.optimisticFieldId && cancelledOptimisticFieldIds.current.has(context.optimisticFieldId)) {
         cancelledOptimisticFieldIds.current.delete(context.optimisticFieldId);
         return;
+      }
+      if (context.optimisticFieldId) {
+        optimisticFieldIdMapRef.current.set(context.optimisticFieldId, field.id);
+        rekeyPendingEdits((edit) =>
+          edit.fieldId === context.optimisticFieldId ? { ...edit, fieldId: field.id } : edit,
+        );
+        logPendingState("add-field-resolved", {
+          optimisticFieldId: context.optimisticFieldId,
+          realFieldId: field.id,
+        });
       }
       utils.table.byId.setData({ id: context.tableId }, (prev: TableById | undefined) => {
         if (!prev) return prev;
@@ -613,6 +719,7 @@ export default function BaseClient({
         });
         return { ...prev, fields, records };
       });
+      flushPendingCellEdits();
     },
   });
 
@@ -674,6 +781,7 @@ export default function BaseClient({
         };
       });
 
+      logPendingState("add-record-optimistic", { optimisticId });
       return { previous, optimisticId };
     },
 
@@ -682,10 +790,27 @@ export default function BaseClient({
         if (!recordsQueryInput) return { previous: undefined };
         utils.table.records.setInfiniteData(recordsQueryInput, ctx.previous);
       }
+      if (ctx?.optimisticId) {
+        optimisticRecordIdMapRef.current.delete(ctx.optimisticId);
+        rekeyPendingEdits((edit) =>
+          edit.recordId === ctx.optimisticId ? null : edit,
+        );
+        logPendingState("add-record-error-cleared", { optimisticRecordId: ctx.optimisticId });
+      }
     },
 
     onSuccess: ({ record }, _vars, ctx) => {
       if (!recordsQueryInput) return { previous: undefined };
+      if (ctx?.optimisticId) {
+        optimisticRecordIdMapRef.current.set(ctx.optimisticId, record.id);
+        rekeyPendingEdits((edit) =>
+          edit.recordId === ctx.optimisticId ? { ...edit, recordId: record.id } : edit,
+        );
+        logPendingState("add-record-resolved", {
+          optimisticRecordId: ctx.optimisticId,
+          realRecordId: record.id,
+        });
+      }
       utils.table.records.setInfiniteData(recordsQueryInput, (prev) => {
         if (!prev) return prev;
         return {
@@ -698,6 +823,7 @@ export default function BaseClient({
           })),
         };
       });
+      flushPendingCellEdits();
     },
   });
 
@@ -817,9 +943,28 @@ export default function BaseClient({
   const handleCellChange = (recordId: string, fieldId: string, value: string | number | null) => {
     if (!activeTableId) return;
 
-    updateCell.mutate(
-      { recordId, fieldId, value },
-    );
+    const resolvedRecordId = resolveRecordId(recordId);
+    const resolvedFieldId = resolveFieldId(fieldId);
+
+    if (isOptimisticRecordId(resolvedRecordId) || isOptimisticFieldId(resolvedFieldId)) {
+      logPendingState("handleCellChange-queue", {
+        recordId,
+        resolvedRecordId,
+        fieldId,
+        resolvedFieldId,
+        value,
+      });
+      queuePendingCellEdit(resolvedRecordId, resolvedFieldId, value);
+      return;
+    }
+
+    logPendingState("immediate-updateCell", {
+      recordId: resolvedRecordId,
+      fieldId: resolvedFieldId,
+      value,
+    });
+    updateCell.mutate({ recordId: resolvedRecordId, fieldId: resolvedFieldId, value });
+    flushPendingCellEdits();
   };
 
   const [activeCellIndex, setActiveCellIndex] = useState<[number, number] | null>(null);
@@ -1076,6 +1221,11 @@ export default function BaseClient({
                   if (!fieldId || deleteField.isPending) return;
                   if (fieldId.startsWith(OPTIMISTIC_FIELD_PREFIX)) {
                     cancelledOptimisticFieldIds.current.add(fieldId);
+                    rekeyPendingEdits((edit) =>
+                      edit.fieldId === fieldId ? null : edit,
+                    );
+                    optimisticFieldIdMapRef.current.delete(fieldId);
+                    logPendingState("delete-optimistic-field-cleared", { fieldId });
                     utils.table.byId.setData({ id: activeTableId }, (prev) => {
                       if (!prev) return prev;
                       const fields = prev.fields.filter((f) => f.id !== fieldId);
