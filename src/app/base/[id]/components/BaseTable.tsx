@@ -848,7 +848,6 @@ export default function BaseTable({
                     }
                     const nextValue = e.target.value;
                     // Debug the raw input to track echoes.
-                    // eslint-disable-next-line no-console
                     console.log("[cell-debug/input]", {
                       recordId,
                       fieldId: key,
@@ -1045,6 +1044,7 @@ export default function BaseTable({
     visibleColumnOrder,
     fieldLookup,
     _onCellChange,
+    onEditValueChange,
     getCanonicalValue,
     updateActiveCell,
     handleCellNavigation,

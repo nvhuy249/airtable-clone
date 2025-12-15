@@ -126,10 +126,13 @@ export default function BaseClient({
   const lastFiltersByViewRef = useRef<Record<string, string>>({});
   const forceHydrateViewRef = useRef(false);
   const lastActiveViewIdRef = useRef<string | null>(null);
+  const [viewSidebarPinned, setViewSidebarPinned] = useState(true);
+  const [viewSidebarHoverOpen, setViewSidebarHoverOpen] = useState(false);
+
+  const viewSidebarOpen = viewSidebarPinned || viewSidebarHoverOpen;
 
   const logPendingState = useCallback((...args: unknown[]) => {
     // Lightweight debug logger to trace cell edit flows and potential echoes.
-    // eslint-disable-next-line no-console
     console.log("[cell-debug]", ...args);
   }, []);
 
@@ -284,6 +287,24 @@ export default function BaseClient({
       });
     },
     [activeTableId, createView, viewListQuery.data],
+  );
+
+  const toggleViewSidebarPinned = useCallback(() => {
+    setViewSidebarPinned((prev) => {
+      const next = !prev;
+      if (!next) {
+        setViewSidebarHoverOpen(false);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleViewSidebarHoverChange = useCallback(
+    (isHovering: boolean) => {
+      if (viewSidebarPinned) return;
+      setViewSidebarHoverOpen(isHovering);
+    },
+    [viewSidebarPinned],
   );
 
   useEffect(() => {
@@ -703,7 +724,7 @@ export default function BaseClient({
       const normalize = (val: string | number | null | undefined) =>
         val === null || val === undefined ? null : typeof val === "number" ? val : String(val);
       const queuedVal = normalize(queued?.pending);
-      const serverVal = normalize(cell.valueNumber ?? (cell.valueText as string | null));
+      const serverVal = normalize(cell.valueNumber ?? cell.valueText);
       const desiredVal = normalize(lastLocalCellValueRef.current.get(key));
 
       if (queued && queuedVal !== serverVal) {
@@ -1323,6 +1344,10 @@ export default function BaseClient({
             viewName={activeView?.name ?? "Grid view"}
             views={viewListQuery.data ?? []}
             activeViewId={activeViewId ?? undefined}
+            viewSidebarOpen={viewSidebarOpen}
+            viewSidebarPinned={viewSidebarPinned}
+            onToggleViewSidebar={toggleViewSidebarPinned}
+            onViewSidebarHoverChange={handleViewSidebarHoverChange}
             onRenameViewAction={(viewId, name) => {
               if (!viewId) return;
               shouldRefetchRecordsRef.current = false;
@@ -1415,25 +1440,27 @@ export default function BaseClient({
         {/* BODY: view sidebar + table */}
         <div className="flex flex-1 overflow-hidden">
           {/* LEFT: view sidebar */}
-          <ViewSidebar
-            loading={loading || viewListQuery.isLoading}
-            views={viewListQuery.data ?? []}
-            activeViewId={activeViewId}
-            onSelectViewAction={(viewId) => setActiveViewId(viewId)}
-            onDeleteViewAction={(viewId) => {
-              if (!viewId || deleteView.isPending) return;
-              deleteView.mutate({ viewId });
-            }}
-            onDuplicateViewAction={(viewId) => duplicateView(viewId)}
-            onCreateViewAction={() => {
-              if (!activeTableId || createView.isPending) return;
-              createView.mutate({
-                tableId: activeTableId,
-                name: "Grid view",
-                config: defaultViewConfig,
-              });
-            }}
-          />
+          {viewSidebarOpen ? (
+            <ViewSidebar
+              loading={loading || viewListQuery.isLoading}
+              views={viewListQuery.data ?? []}
+              activeViewId={activeViewId}
+              onSelectViewAction={(viewId) => setActiveViewId(viewId)}
+              onDeleteViewAction={(viewId) => {
+                if (!viewId || deleteView.isPending) return;
+                deleteView.mutate({ viewId });
+              }}
+              onDuplicateViewAction={(viewId) => duplicateView(viewId)}
+              onCreateViewAction={() => {
+                if (!activeTableId || createView.isPending) return;
+                createView.mutate({
+                  tableId: activeTableId,
+                  name: "Grid view",
+                  config: defaultViewConfig,
+                });
+              }}
+            />
+          ) : null}
 
           {/* RIGHT: table + bottom bar */}
           <div className="flex flex-1 flex-col overflow-hidden">

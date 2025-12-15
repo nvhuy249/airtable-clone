@@ -16,6 +16,7 @@ import {
   Eye,
   X,
   Trash2,
+  GripVertical,
 } from "lucide-react";
 
 type Field = { id: string; name: string; order: number; type?: "TEXT" | "NUMBER" };
@@ -77,6 +78,17 @@ const toolbarItems = [
   { label: "Share and sync", Icon: Share2 },
 ];
 
+const reorderById = <T extends { id: string }>(list: T[], fromId: string, toId: string) => {
+  const fromIndex = list.findIndex((item) => item.id === fromId);
+  const toIndex = list.findIndex((item) => item.id === toId);
+  if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return list;
+  const next = [...list];
+  const [moved] = next.splice(fromIndex, 1);
+  if (!moved) return list;
+  next.splice(toIndex, 0, moved);
+  return next;
+};
+
 export default function TableToolbar({
   fields,
   hiddenFieldIds,
@@ -97,7 +109,7 @@ export default function TableToolbar({
   isSeedingRows,
   globalSearch,
   onGlobalSearchChange,
-  viewSidebarOpen,
+  viewSidebarOpen: _viewSidebarOpen,
   viewSidebarPinned,
   onToggleViewSidebar,
   onViewSidebarHoverChange,
@@ -110,6 +122,10 @@ export default function TableToolbar({
   const [sortOpen, setSortOpen] = useState(false);
   const [localFilters, setLocalFilters] = useState(filters);
   const [localSorts, setLocalSorts] = useState<SortState>(sorts);
+  const [draggingSortId, setDraggingSortId] = useState<string | null>(null);
+  const [sortDragOverId, setSortDragOverId] = useState<string | null>(null);
+  const [draggingFilterId, setDraggingFilterId] = useState<string | null>(null);
+  const [filterDragOverId, setFilterDragOverId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const viewActionsRef = useRef<HTMLDivElement | null>(null);
   const viewActionsTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -189,6 +205,24 @@ export default function TableToolbar({
     onFiltersChange(next);
   };
 
+  const handleSortReorder = (sourceId: string, targetId: string) => {
+    if (!sourceId || !targetId || sourceId === targetId) return;
+    const nextItems = reorderById(localSorts.items, sourceId, targetId);
+    if (nextItems === localSorts.items) return;
+    const next = { ...localSorts, items: nextItems };
+    setLocalSorts(next);
+    if (next.auto) onSortsChange(next, true);
+  };
+
+  const handleFilterReorder = (sourceId: string, targetId: string) => {
+    if (!sourceId || !targetId || sourceId === targetId) return;
+    const nextConditions = reorderById(localFilters.conditions, sourceId, targetId);
+    if (nextConditions === localFilters.conditions) return;
+    const next = { ...localFilters, conditions: nextConditions };
+    setLocalFilters(next);
+    onFiltersChange(next);
+  };
+
   const operatorOptionsForField = (field?: Field) => {
     const normalizedType = (field?.type ?? "").toString().toUpperCase();
     const isNumber = normalizedType === "NUMBER";
@@ -220,7 +254,7 @@ export default function TableToolbar({
       <div className="flex items-center gap-2">
         <button
           type="button"
-          className="inline-flex h-8 w-8 items-center justify-center rounded text-[#2557e0] hover:text-[#1f47c9] transition-colors"
+          className="inline-flex h-8 w-8 items-center justify-center rounded text-gray-600 hover:text-gray-900 transition-colors"
           onClick={onToggleViewSidebar}
           onMouseEnter={() => onViewSidebarHoverChange(true)}
           onMouseLeave={() => onViewSidebarHoverChange(false)}
@@ -336,11 +370,24 @@ export default function TableToolbar({
         <button
           ref={filterTriggerRef}
           type="button"
-          className="inline-flex items-center gap-1 hover:text-gray-900"
+          className={`inline-flex items-center gap-1 hover:text-gray-900 ${
+            localFilters.conditions.length
+              ? "text-emerald-700 border border-emerald-200 bg-emerald-50 px-2 py-1 rounded"
+              : ""
+          }`}
           onClick={() => setFilterOpen((p) => !p)}
         >
           <Filter className="h-3.5 w-3.5" />
-          <span>Filter</span>
+          <span>
+            {localFilters.conditions.length
+              ? (() => {
+                  const primary = localFilters.conditions[0];
+                  const fieldName =
+                    orderedFields.find((f) => f.id === primary?.fieldId)?.name ?? "field";
+                  return `Filtered by ${fieldName}${localFilters.conditions.length > 1 ? "..." : ""}`;
+                })()
+              : "Filter"}
+          </span>
           <ChevronDown className="h-3 w-3 text-gray-500" />
         </button>
 
@@ -490,7 +537,28 @@ export default function TableToolbar({
                       orderedFields.find((f) => f.id === item.fieldId) ?? orderedFields[0];
                     const isNumber = (fieldForItem?.type ?? "").toString().toUpperCase() === "NUMBER";
                     return (
-                      <div key={item.id} className="flex items-center gap-2">
+                      <div
+                        key={item.id}
+                        className={`flex items-center gap-2 rounded px-1 ${
+                          sortDragOverId === item.id ? "ring-1 ring-orange-300 bg-orange-50" : ""
+                        } ${draggingSortId === item.id ? "opacity-70" : ""}`}
+                        onDragOver={(e) => {
+                          if (!draggingSortId || draggingSortId === item.id || localSorts.items.length < 2) return;
+                          e.preventDefault();
+                          setSortDragOverId(item.id);
+                        }}
+                        onDragLeave={() => {
+                          if (sortDragOverId === item.id) setSortDragOverId(null);
+                        }}
+                        onDrop={(e) => {
+                          if (!draggingSortId || localSorts.items.length < 2) return;
+                          e.preventDefault();
+                          const sourceId = e.dataTransfer.getData("text/plain") || draggingSortId;
+                          handleSortReorder(sourceId, item.id);
+                          setSortDragOverId(null);
+                          setDraggingSortId(null);
+                        }}
+                      >
                         <select
                           value={item.fieldId}
                           onChange={(e) => {
@@ -553,6 +621,25 @@ export default function TableToolbar({
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
+                        {localSorts.items.length > 1 && (
+                          <span
+                            className="cursor-grab p-1 text-gray-400 hover:text-gray-600"
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("text/plain", item.id);
+                              e.dataTransfer.effectAllowed = "move";
+                              setDraggingSortId(item.id);
+                            }}
+                            onDragEnd={() => {
+                              setDraggingSortId(null);
+                              setSortDragOverId(null);
+                            }}
+                            aria-label="Drag to reorder sort"
+                            role="button"
+                          >
+                            <GripVertical className="h-4 w-4" />
+                          </span>
+                        )}
                       </div>
                     );
                   })}
@@ -632,7 +719,28 @@ export default function TableToolbar({
               ) : (
                 <div className="space-y-2">
                   {localFilters.conditions.map((condition, idx) => (
-                    <div key={condition.id} className="flex items-center gap-1">
+                    <div
+                      key={condition.id}
+                      className={`flex items-center gap-1 rounded px-1 ${
+                        filterDragOverId === condition.id ? "ring-1 ring-emerald-300 bg-emerald-50" : ""
+                      } ${draggingFilterId === condition.id ? "opacity-70" : ""}`}
+                      onDragOver={(e) => {
+                        if (!draggingFilterId || draggingFilterId === condition.id || localFilters.conditions.length < 2) return;
+                        e.preventDefault();
+                        setFilterDragOverId(condition.id);
+                      }}
+                      onDragLeave={() => {
+                        if (filterDragOverId === condition.id) setFilterDragOverId(null);
+                      }}
+                      onDrop={(e) => {
+                        if (!draggingFilterId || localFilters.conditions.length < 2) return;
+                        e.preventDefault();
+                        const sourceId = e.dataTransfer.getData("text/plain") || draggingFilterId;
+                        handleFilterReorder(sourceId, condition.id);
+                        setFilterDragOverId(null);
+                        setDraggingFilterId(null);
+                      }}
+                    >
                       <div className="flex items-center gap-1 min-w-[110px]">
                         {idx === 0 ? (
                           <>
@@ -647,7 +755,7 @@ export default function TableToolbar({
                                   connector: e.target.value as "and" | "or",
                                   conditions: localFilters.conditions,
                                 };
-                                setLocalFilters(next);
+                                commitFilters(next);
                               }}
                               className="rounded border border-gray-300 px-2 py-1 text-gray-800"
                             >
@@ -763,6 +871,25 @@ export default function TableToolbar({
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
+                        {localFilters.conditions.length > 1 && (
+                          <span
+                            className="cursor-grab p-1 text-gray-400 hover:text-gray-600"
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("text/plain", condition.id);
+                              e.dataTransfer.effectAllowed = "move";
+                              setDraggingFilterId(condition.id);
+                            }}
+                            onDragEnd={() => {
+                              setDraggingFilterId(null);
+                              setFilterDragOverId(null);
+                            }}
+                            aria-label="Drag to reorder condition"
+                            role="button"
+                          >
+                            <GripVertical className="h-4 w-4" />
+                          </span>
+                        )}
                       </div>
                     </div>
                   ))}

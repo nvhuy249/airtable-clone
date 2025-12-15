@@ -158,9 +158,6 @@ export default function ViewSidebar({
           return (
             <div key={view.id} className="px-0 group">
               <div className="relative">
-                {isActive ? (
-                  <div className="absolute inset-y-1 left-0 w-[3px] rounded-full bg-[#2557e0]" />
-                ) : null}
                 <div
                   role="button"
                   tabIndex={0}
@@ -181,7 +178,7 @@ export default function ViewSidebar({
                   }}
                 >
                   <span className="flex items-center gap-2">
-                    <LayoutGrid className="h-3.5 w-3.5" />
+                    <LayoutGrid className="h-3.5 w-3.5 text-[#2557e0]" />
                     {editingViewId === view.id ? (
                       <input
                         autoFocus
