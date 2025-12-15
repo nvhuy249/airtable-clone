@@ -118,6 +118,8 @@ export default function BaseClient({
   const shouldRefetchRecordsRef = useRef(true);
   const lastSearchByViewRef = useRef<Record<string, string>>({});
   const lastFiltersByViewRef = useRef<Record<string, string>>({});
+  const forceHydrateViewRef = useRef(false);
+  const lastActiveViewIdRef = useRef<string | null>(null);
 
   const logPendingState = useCallback((..._args: unknown[]) => undefined, []);
 
@@ -306,7 +308,15 @@ export default function BaseClient({
     setGlobalSearch("");
     setHiddenFieldIds([]);
     setActiveViewId(null);
+    forceHydrateViewRef.current = true;
   }, [activeTableId]);
+
+  useEffect(() => {
+    if (!activeViewId) return;
+    if (lastActiveViewIdRef.current === activeViewId) return;
+    lastActiveViewIdRef.current = activeViewId;
+    forceHydrateViewRef.current = true;
+  }, [activeViewId]);
 
   useEffect(() => {
     const storedViewId = persistedViewMapRef.current[activeTableId];
@@ -339,6 +349,7 @@ export default function BaseClient({
 
   useEffect(() => {
     if (!activeView) return;
+    const shouldForceHydrate = forceHydrateViewRef.current;
     const cfg = activeView.config ?? defaultViewConfig;
 
     const nextFilters = {
@@ -367,7 +378,7 @@ export default function BaseClient({
     const isStaleServerFilters =
       lastLocalFilters !== undefined && lastLocalFilters !== serializedNextFilters;
 
-    if (!hasNewerLocalFilters && !isStaleServerFilters) {
+    if (shouldForceHydrate || (!hasNewerLocalFilters && !isStaleServerFilters)) {
       setFilters((prev) => {
         const prevSerialized = serializeFilters(prev);
         if (prevSerialized === serializedNextFilters) return prev;
@@ -396,7 +407,7 @@ export default function BaseClient({
     const hasNewerLocalValue = isServerEchoOfLocal && nextSearch !== globalSearch;
     const isStaleServerSearch = lastLocalSearch !== undefined && lastLocalSearch !== nextSearch;
 
-    if (!hasNewerLocalValue && !isStaleServerSearch) {
+    if (shouldForceHydrate || (!hasNewerLocalValue && !isStaleServerSearch)) {
       setGlobalSearch((prev) => {
         lastSearchByViewRef.current[activeView.id] = nextSearch;
         return prev === nextSearch ? prev : nextSearch;
@@ -406,6 +417,9 @@ export default function BaseClient({
       const next = cfg.hiddenFieldIds ?? [];
       return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
     });
+    if (shouldForceHydrate) {
+      forceHydrateViewRef.current = false;
+    }
   }, [activeView, filters, globalSearch]);
 
   useEffect(() => {
@@ -446,6 +460,7 @@ export default function BaseClient({
       hiddenFieldIds?: string[];
     }, options?: { skipRecordRefresh?: boolean }) => {
       if (!activeViewId) return;
+      if (forceHydrateViewRef.current) return;
       const nextConfig = buildViewConfig(overrides);
       if (overrides?.filters) {
         lastFiltersByViewRef.current[activeViewId] = serializeFilters(overrides.filters);
@@ -458,6 +473,7 @@ export default function BaseClient({
 
   useEffect(() => {
     if (!activeViewId) return;
+    if (forceHydrateViewRef.current) return;
     const next = globalSearch;
     const last = lastSearchByViewRef.current[activeViewId];
     if (last === next) return;
