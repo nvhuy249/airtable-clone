@@ -22,6 +22,10 @@ type PendingCellEdit = {
   fieldId: string;
   value: string | number | null;
 };
+type CellUpdateQueueEntry = {
+  pending: string | number | null;
+  inFlight: boolean;
+};
 
 const makeEmptyCell = (recordId: string, fieldId: string): TableCell => ({
   id: `temp-cell-${recordId}-${fieldId}`,
@@ -113,6 +117,8 @@ export default function BaseClient({
   const hasHydratedRef = useRef(false);
   const persistedViewMapRef = useRef<Record<string, string>>({});
   const pendingCellEditsRef = useRef<Map<string, PendingCellEdit>>(new Map());
+  const cellUpdateQueuesRef = useRef<Map<string, CellUpdateQueueEntry>>(new Map());
+  const lastLocalCellValueRef = useRef<Map<string, string | number | null>>(new Map());
   const optimisticRecordIdMapRef = useRef<Map<string, string>>(new Map());
   const optimisticFieldIdMapRef = useRef<Map<string, string>>(new Map());
   const shouldRefetchRecordsRef = useRef(true);
@@ -121,7 +127,11 @@ export default function BaseClient({
   const forceHydrateViewRef = useRef(false);
   const lastActiveViewIdRef = useRef<string | null>(null);
 
-  const logPendingState = useCallback((..._args: unknown[]) => undefined, []);
+  const logPendingState = useCallback((...args: unknown[]) => {
+    // Lightweight debug logger to trace cell edit flows and potential echoes.
+    // eslint-disable-next-line no-console
+    console.log("[cell-debug]", ...args);
+  }, []);
 
   const utils = api.useUtils();
   const tableQuery = api.table.byId.useQuery(
@@ -688,9 +698,120 @@ export default function BaseClient({
       }
     },
     onSuccess: (cell) => {
+      const key = makePendingKey(cell.recordId, cell.fieldId);
+      const queued = cellUpdateQueuesRef.current.get(key);
+      const normalize = (val: string | number | null | undefined) =>
+        val === null || val === undefined ? null : typeof val === "number" ? val : String(val);
+      const queuedVal = normalize(queued?.pending);
+      const serverVal = normalize(cell.valueNumber ?? (cell.valueText as string | null));
+      const desiredVal = normalize(lastLocalCellValueRef.current.get(key));
+
+      if (queued && queuedVal !== serverVal) {
+        logPendingState("server-update-skipped-stale", {
+          recordId: cell.recordId,
+          fieldId: cell.fieldId,
+          serverVal,
+          queuedVal,
+        });
+        return;
+      }
+
+      if (desiredVal !== null && desiredVal !== serverVal) {
+        logPendingState("server-update-skipped-outdated", {
+          recordId: cell.recordId,
+          fieldId: cell.fieldId,
+          serverVal,
+          desiredVal,
+        });
+        return;
+      }
+
       applyCellToCache(cell.recordId, cell);
+      logPendingState("server-update-success", {
+        recordId: cell.recordId,
+        fieldId: cell.fieldId,
+        valueText: cell.valueText,
+        valueNumber: cell.valueNumber,
+      });
     },
   });
+
+  const processCellUpdateQueue = useCallback(
+    (recordId: string, fieldId: string) => {
+      const key = makePendingKey(recordId, fieldId);
+      const current = cellUpdateQueuesRef.current.get(key);
+      if (!current || current.inFlight || current.pending === undefined) return;
+
+      const valueToSend = current.pending;
+      cellUpdateQueuesRef.current.set(key, { ...current, inFlight: true });
+      logPendingState("cell-update-send", { recordId, fieldId, value: valueToSend });
+
+      updateCell.mutate(
+        { recordId, fieldId, value: valueToSend },
+        {
+          onError: () => {
+            // Leave the pending value so it can be retried or overwritten by a newer edit.
+            cellUpdateQueuesRef.current.set(key, { pending: valueToSend, inFlight: false });
+            logPendingState("cell-update-error", { recordId, fieldId });
+          },
+          onSettled: () => {
+            const next = cellUpdateQueuesRef.current.get(key);
+            if (!next) return;
+            const hasNewerValue = next.pending !== valueToSend;
+            cellUpdateQueuesRef.current.set(key, {
+              pending: hasNewerValue ? next.pending : valueToSend,
+              inFlight: false,
+            });
+            if (hasNewerValue) {
+              processCellUpdateQueue(recordId, fieldId);
+            } else {
+              cellUpdateQueuesRef.current.delete(key);
+            }
+            logPendingState("cell-update-settled", {
+              recordId,
+              fieldId,
+              sentValue: valueToSend,
+              hasNewerValue,
+              remaining: cellUpdateQueuesRef.current.get(key)?.pending,
+            });
+          },
+        },
+      );
+    },
+    [logPendingState, updateCell],
+  );
+
+  const enqueueCellUpdate = useCallback(
+    (recordId: string, fieldId: string, value: string | number | null) => {
+      const key = makePendingKey(recordId, fieldId);
+      const current = cellUpdateQueuesRef.current.get(key);
+      cellUpdateQueuesRef.current.set(key, { pending: value, inFlight: current?.inFlight ?? false });
+      const normalized = value === null ? null : typeof value === "number" ? value : String(value);
+      lastLocalCellValueRef.current.set(key, normalized);
+      applyCellToCache(recordId, buildOptimisticCell(recordId, fieldId, value));
+      logPendingState("cell-update-queued", {
+        recordId,
+        fieldId,
+        value,
+        prevPending: current?.pending,
+        inFlight: current?.inFlight ?? false,
+      });
+      if (!current?.inFlight) {
+        processCellUpdateQueue(recordId, fieldId);
+      }
+    },
+    [applyCellToCache, logPendingState, processCellUpdateQueue],
+  );
+
+  const handleLocalEditValue = useCallback(
+    (recordId: string, fieldId: string, value: string | number | null | undefined) => {
+      const key = makePendingKey(recordId, fieldId);
+      const normalized =
+        value === null || value === undefined ? null : typeof value === "number" ? value : String(value);
+      lastLocalCellValueRef.current.set(key, normalized);
+    },
+    [],
+  );
 
   const resolveRecordId = useCallback(
     (recordId: string) => optimisticRecordIdMapRef.current.get(recordId) ?? recordId,
@@ -742,21 +863,9 @@ export default function BaseClient({
       pendingCellEditsRef.current.delete(key);
 
       logPendingState("flush-commit", { recordId, fieldId, value: edit.value });
-      updateCell.mutate(
-        { recordId, fieldId, value: edit.value },
-        {
-          onError: () => {
-            pendingCellEditsRef.current.set(makePendingKey(recordId, fieldId), {
-              recordId,
-              fieldId,
-              value: edit.value,
-            });
-            logPendingState("flush-error-requeued", { recordId, fieldId });
-          },
-        },
-      );
+      enqueueCellUpdate(recordId, fieldId, edit.value);
     });
-  }, [logPendingState, resolveFieldId, resolveRecordId, updateCell]);
+  }, [enqueueCellUpdate, logPendingState, resolveFieldId, resolveRecordId]);
 
   const addField = api.table.addField.useMutation({
     onMutate: async (variables) => {
@@ -1062,6 +1171,13 @@ export default function BaseClient({
 
     const resolvedRecordId = resolveRecordId(recordId);
     const resolvedFieldId = resolveFieldId(fieldId);
+    logPendingState("handleCellChange", {
+      recordId,
+      resolvedRecordId,
+      fieldId,
+      resolvedFieldId,
+      value,
+    });
 
     if (isOptimisticRecordId(resolvedRecordId) || isOptimisticFieldId(resolvedFieldId)) {
       logPendingState("handleCellChange-queue", {
@@ -1080,7 +1196,7 @@ export default function BaseClient({
       fieldId: resolvedFieldId,
       value,
     });
-    updateCell.mutate({ recordId: resolvedRecordId, fieldId: resolvedFieldId, value });
+    enqueueCellUpdate(resolvedRecordId, resolvedFieldId, value);
     flushPendingCellEdits();
   };
 
@@ -1339,16 +1455,17 @@ export default function BaseClient({
               sortedFieldIds={appliedSorts.map((s) => s.fieldId)}
               searchTerm={globalSearch}
               isLoading={tableQuery.isLoading || isRecordsLoading}
-              hasMore={hasMore}
-                isFetchingMore={isFetchingMore}
-                onLoadMore={handleLoadMore}
-                totalCount={totalCount}
-                onCellChange={handleCellChange}
-                onAddColumn={(type = "TEXT", name) => {
-                  if (!activeTableId || addField.isPending) return;
-                  addField.mutate({
-                    tableId: activeTableId,
-                type,
+            hasMore={hasMore}
+              isFetchingMore={isFetchingMore}
+              onLoadMore={handleLoadMore}
+              totalCount={totalCount}
+              onCellChange={handleCellChange}
+              onEditValueChange={handleLocalEditValue}
+              onAddColumn={(type = "TEXT", name) => {
+                if (!activeTableId || addField.isPending) return;
+                addField.mutate({
+                  tableId: activeTableId,
+              type,
                     name,
                   });
                 }}

@@ -97,6 +97,7 @@ interface BaseTableProps {
   onDeleteRecords?: (recordIds: string[]) => void;
   searchTerm?: string;
   onCellChange?: (recordId: string, fieldId: string, value: string | number | null) => void;
+  onEditValueChange?: (recordId: string, fieldId: string, value: string | number | null | undefined) => void;
   activeCellIndex?: [number, number] | null;
   onActiveCellIndexChange?: (coords: [number, number] | null) => void;
 }
@@ -161,6 +162,7 @@ export default function BaseTable({
   onDeleteColumn,
   onDeleteRecords,
   onCellChange: _onCellChange,
+  onEditValueChange,
   activeCellIndex: _activeCellIndex,
   onActiveCellIndexChange: _onActiveCellIndexChange,
 }: BaseTableProps) {
@@ -747,8 +749,11 @@ export default function BaseTable({
         }, [isActive, editValue]);
 
         useEffect(() => {
-          setEditValue(cellValue == null ? "" : String(cellValue));
-        }, [cellValue]);
+          const next = cellValue == null ? "" : String(cellValue);
+          // Avoid overwriting the user's in-progress edit with a stale server value.
+          if (isEditing && editValue !== next) return;
+          setEditValue(next);
+        }, [cellValue, isEditing, editValue]);
 
         const commitChange = (pendingValue?: string) => {
           if (!_onCellChange) return;
@@ -842,7 +847,16 @@ export default function BaseTable({
                       setEditingCell({ rowIndex, colId: String(key) });
                     }
                     const nextValue = e.target.value;
-                    setEditValue(nextValue);
+                    // Debug the raw input to track echoes.
+                    // eslint-disable-next-line no-console
+                    console.log("[cell-debug/input]", {
+                      recordId,
+                      fieldId: key,
+                      nextValue,
+                      canonicalValue,
+                    });
+                  setEditValue(nextValue);
+                  onEditValueChange?.(recordId, key, nextValue === "" ? null : nextValue);
                     setData((old) => {
                       const copy = [...old];
                       const current = copy[rowIndex];

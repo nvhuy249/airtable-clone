@@ -655,20 +655,15 @@ export const tableRouter = createTRPCRouter({
               valueNumber: null,
             };
 
-      const existing = await ctx.db.cell.findFirst({
-        where: { recordId: record.id, fieldId: field.id },
-        select: { id: true },
+      const cell = await ctx.db.cell.upsert({
+        where: { recordId_fieldId: { recordId: record.id, fieldId: field.id } },
+        update: data,
+        create: {
+          recordId: record.id,
+          fieldId: field.id,
+          ...data,
+        },
       });
-
-      const cell = existing
-        ? await ctx.db.cell.update({ where: { id: existing.id }, data })
-        : await ctx.db.cell.create({
-            data: {
-              recordId: record.id,
-              fieldId: field.id,
-              ...data,
-            },
-          });
 
       return cell;
     }),
