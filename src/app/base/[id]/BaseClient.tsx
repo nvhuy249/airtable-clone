@@ -613,9 +613,9 @@ function BaseClientContent({
         !loading,
       getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
       refetchOnWindowFocus: false,
-      refetchOnReconnect: false,
-      refetchOnMount: false,
-      staleTime: 60 * 1000,
+      refetchOnReconnect: true,
+      refetchOnMount: true,
+      staleTime: 0,
     },
   );
 
@@ -626,7 +626,17 @@ function BaseClientContent({
     },
     [recordsQuery.data?.pages]
   );
-  const totalCount = recordsQuery.data?.pages[0]?.total ?? 0;
+  const baseTotalCount = recordsQuery.data?.pages[0]?.total;
+  const [totalDelta, setTotalDelta] = useState(0);
+  useEffect(() => {
+    setTotalDelta(0);
+  }, [baseTotalCount, records.length]);
+  const baseTotalNumber =
+    baseTotalCount === undefined || baseTotalCount === null
+      ? undefined
+      : Number(baseTotalCount);
+  const totalCountBase = Number.isFinite(baseTotalNumber) ? baseTotalNumber : records.length;
+  const totalCount = Math.max(0, (totalCountBase ?? 0) + totalDelta);
   const hasMore = Boolean(recordsQuery.hasNextPage);
   const isFetchingMore = recordsQuery.isFetchingNextPage;
   const isRecordsLoading = recordsQuery.isLoading || recordsQuery.isFetchingNextPage;
@@ -923,6 +933,40 @@ function BaseClientContent({
     [],
   );
 
+  const handleCellChange = (recordId: string, fieldId: string, value: string | number | null) => {
+    if (!activeTableId) return;
+
+    const resolvedRecordId = resolveRecordId(recordId);
+    const resolvedFieldId = resolveFieldId(fieldId);
+    logPendingState("handleCellChange", {
+      recordId,
+      resolvedRecordId,
+      fieldId,
+      resolvedFieldId,
+      value,
+    });
+
+    if (isOptimisticRecordId(resolvedRecordId) || isOptimisticFieldId(resolvedFieldId)) {
+      logPendingState("handleCellChange-queue", {
+        recordId,
+        resolvedRecordId,
+        fieldId,
+        resolvedFieldId,
+        value,
+      });
+      queuePendingCellEdit(resolvedRecordId, resolvedFieldId, value);
+      return;
+    }
+
+    logPendingState("immediate-updateCell", {
+      recordId: resolvedRecordId,
+      fieldId: resolvedFieldId,
+      value,
+    });
+    enqueueCellUpdate(resolvedRecordId, resolvedFieldId, value);
+    flushPendingCellEdits();
+  };
+
   const resolveRecordId = useCallback(
     (recordId: string) => optimisticRecordIdMapRef.current.get(recordId) ?? recordId,
     [],
@@ -1118,6 +1162,7 @@ function BaseClientContent({
       });
 
       logPendingState("add-record-optimistic", { optimisticId });
+      setTotalDelta((d) => d + 1);
       return { previous, optimisticId };
     },
 
@@ -1133,6 +1178,7 @@ function BaseClientContent({
         );
         logPendingState("add-record-error-cleared", { optimisticRecordId: ctx.optimisticId });
       }
+      setTotalDelta((d) => d - 1);
     },
 
     onSuccess: ({ record }, _vars, ctx) => {
@@ -1225,7 +1271,9 @@ function BaseClientContent({
         };
       });
 
-      return { previous };
+      setTotalDelta((d) => d - recordIds.length);
+
+      return { previous, removed: recordIds.length };
     },
 
     onError: (_err, _vars, ctx) => {
@@ -1233,13 +1281,36 @@ function BaseClientContent({
       if (ctx?.previous && recordsQueryInput) {
         utils.table.records.setInfiniteData(recordsQueryInput, ctx.previous);
       }
+      if (ctx?.removed) {
+        setTotalDelta((d) => d + ctx.removed);
+      }
     },
 
     onSuccess: () => {
       // Optional: force refresh if server returns new pagination info
-      // void utils.table.records.invalidate(recordsQueryInput);
+      if (recordsQueryInput) {
+        void utils.table.records.invalidate(recordsQueryInput);
+      } else if (activeTableId) {
+        void utils.table.records.invalidate({ tableId: activeTableId });
+      } else {
+        void utils.table.records.invalidate();
+      }
     },
   });
+
+  const flushLocalEdits = useCallback(() => {
+    if (!lastLocalCellValueRef.current.size) return;
+    logPendingState("flush-local-edits", {
+      count: lastLocalCellValueRef.current.size,
+    });
+    lastLocalCellValueRef.current.forEach((val, key) => {
+      const [recordId, fieldId] = key.split(":");
+      if (!recordId || !fieldId) return;
+      handleCellChange(recordId, fieldId, val ?? null);
+    });
+    // Force downstream views/queries to refetch so switches see latest data.
+    void utils.table.records.invalidate();
+  }, [handleCellChange, logPendingState, utils.table.records]);
 
   const handleAddTable = () => {
     const nextIndex = tablesState.length + 1;
@@ -1249,6 +1320,28 @@ function BaseClientContent({
   const handleDeleteTable = (id: string) => {
     deleteTable.mutate({ tableId: id });
   };
+
+  const handleSelectView = useCallback(
+    (viewId: string | null) => {
+      flushLocalEdits();
+      setActiveViewId(viewId);
+      if (activeTableId) {
+        void utils.table.records.invalidate({ tableId: activeTableId, viewId: viewId ?? undefined });
+      } else {
+        void utils.table.records.invalidate();
+      }
+    },
+    [activeTableId, flushLocalEdits, utils.table.records],
+  );
+
+  const handleChangeTable = useCallback(
+    (tableId: string) => {
+      flushLocalEdits();
+      setActiveTableId(tableId);
+      void utils.table.records.invalidate({ tableId });
+    },
+    [flushLocalEdits, utils.table.records],
+  );
 
   const handleRenameTable = (id: string, name: string) => {
     const trimmed = name.trim();
@@ -1276,40 +1369,6 @@ function BaseClientContent({
     );
   };
 
-  const handleCellChange = (recordId: string, fieldId: string, value: string | number | null) => {
-    if (!activeTableId) return;
-
-    const resolvedRecordId = resolveRecordId(recordId);
-    const resolvedFieldId = resolveFieldId(fieldId);
-    logPendingState("handleCellChange", {
-      recordId,
-      resolvedRecordId,
-      fieldId,
-      resolvedFieldId,
-      value,
-    });
-
-    if (isOptimisticRecordId(resolvedRecordId) || isOptimisticFieldId(resolvedFieldId)) {
-      logPendingState("handleCellChange-queue", {
-        recordId,
-        resolvedRecordId,
-        fieldId,
-        resolvedFieldId,
-        value,
-      });
-      queuePendingCellEdit(resolvedRecordId, resolvedFieldId, value);
-      return;
-    }
-
-    logPendingState("immediate-updateCell", {
-      recordId: resolvedRecordId,
-      fieldId: resolvedFieldId,
-      value,
-    });
-    enqueueCellUpdate(resolvedRecordId, resolvedFieldId, value);
-    flushPendingCellEdits();
-  };
-
   const [activeCellIndex, setActiveCellIndex] = useState<[number, number] | null>(null);
 
   if (loading) {
@@ -1324,11 +1383,11 @@ function BaseClientContent({
           <div className="flex items-center justify-between px-5 py-3 border border-gray-200 bg-white">
             <div className="flex items-center gap-3 min-w-[220px]">
               <Image
-                src="/airtable-logo.png"
+                src="/airtable-logo-white.png"
                 alt="Airtable logo"
                 width={28}
                 height={28}
-                className="h-7 w-7 rounded border border-gray-300 p-1 cursor-pointer"
+                className="h-7 w-7 rounded-md border border-gray-300 bg-grey-500 p-1 cursor-pointer"
                 onClick={() => (window.location.href = "/")}
                 priority
               />
@@ -1351,10 +1410,10 @@ function BaseClientContent({
           </div>
 
           {/* TABLE TABS ONLY */}
-          <TableTopBar
+            <TableTopBar
             tables={tablesState}
             activeTableId={activeTableId}
-            onChangeTable={() => undefined}
+            onChangeTable={handleChangeTable}
             onAddTable={() => undefined}
             onRenameTable={() => undefined}
             onDeleteTable={() => undefined}
@@ -1381,11 +1440,11 @@ function BaseClientContent({
           {/* LEFT: logo + base name */}
           <div className="flex items-center gap-3 min-w-[220px]">
             <Image
-              src="/airtable-logo.png"
+              src="/airtable-logo-white.png"
               alt="Airtable logo"
               width={28}
               height={28}
-              className="h-7 w-7 rounded border border-gray-300 p-1 cursor-pointer"
+              className="h-7 w-7 rounded-md border border-gray-300 bg-gray-500 p-1 cursor-pointer"
               onClick={() => (window.location.href = "/")}
               priority
             />
@@ -1418,14 +1477,14 @@ function BaseClientContent({
 
         {/* TABLE HEADER STRIP = table switcher + toolbar */}
         <div className={loading ? "pointer-events-none opacity-60" : ""}>
-          <TableTopBar
-            tables={loading ? [] : tablesState}
-            activeTableId={loading ? "" : activeTableId}
-            onChangeTable={setActiveTableId}
-            onAddTable={handleAddTable}
-            onRenameTable={handleRenameTable}
-            onDeleteTable={handleDeleteTable}
-          />
+            <TableTopBar
+              tables={loading ? [] : tablesState}
+              activeTableId={loading ? "" : activeTableId}
+              onChangeTable={handleChangeTable}
+              onAddTable={handleAddTable}
+              onRenameTable={handleRenameTable}
+              onDeleteTable={handleDeleteTable}
+            />
         </div>
 
         <div className={loading ? "pointer-events-none opacity-60" : ""}>
@@ -1534,7 +1593,7 @@ function BaseClientContent({
               loading={loading || viewListQuery.isLoading}
               views={viewListQuery.data ?? []}
               activeViewId={activeViewId}
-              onSelectViewAction={(viewId) => setActiveViewId(viewId)}
+              onSelectViewAction={(viewId) => handleSelectView(viewId)}
               onDeleteViewAction={(viewId) => {
                 if (!viewId || deleteView.isPending) return;
                 deleteView.mutate({ viewId });

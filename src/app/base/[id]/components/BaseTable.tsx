@@ -1000,7 +1000,12 @@ export default function BaseTable({
                 }}
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  setSelectedRows(new Set([recordId]));
+                  setSelectedRows((prev) => {
+                    if (prev.has(recordId)) return prev;
+                    const next = new Set(prev);
+                    next.add(recordId);
+                    return next;
+                  });
                   openContextMenu(e.clientX, e.clientY, recordId);
                 }}
               />
@@ -1305,6 +1310,16 @@ export default function BaseTable({
                   className={`${rowHovered ? "bg-[#f1f3f7]" : "bg-white"} ${isSelected ? "border border-blue-50" : ""}`}
                   onMouseEnter={() => setHoveredRow(absoluteIndex)}
                   onMouseLeave={() => setHoveredRow(null)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setSelectedRows((prev) => {
+                      if (prev.has(recordId)) return prev;
+                      const next = new Set(prev);
+                      next.add(recordId);
+                      return next;
+                    });
+                    openContextMenu(e.clientX, e.clientY, recordId);
+                  }}
                   style={{ height: VIRTUAL_ROW_HEIGHT }}
                 >
                   {row.getVisibleCells().map((cell) => {

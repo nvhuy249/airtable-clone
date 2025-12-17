@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   FiStar,
   FiMoreHorizontal,
@@ -69,6 +70,7 @@ export default function BaseCard({
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const renameSubmittedRef = useRef(false);
   const renameCancelledRef = useRef(false);
+  const router = useRouter();
 
   const initials = useMemo(() => {
     const trimmed = base.name?.trim();
@@ -122,18 +124,32 @@ export default function BaseCard({
     onRenameCancel?.();
   };
 
+  const handleCardClick = () => {
+    if (isRenaming) return;
+    void router.push(`/base/${base.id}`);
+  };
+
   return (
     <div
       className={`relative border rounded-xl bg-white transition shadow-sm w-full ${
         hovered || menuOpen ? "shadow-md border-[#c2cad8] bg-[#e8edf3]" : "border-[#e6e8eb]"
       } hover:bg-[#e8edf3]`}
+      role="button"
+      tabIndex={0}
+      onClick={handleCardClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handleCardClick();
+        }
+      }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => {
         setHovered(false);
         setMenuOpen(false);
       }}
     >
-      <div className="flex items-start gap-3 p-4">
+      <div className="relative z-10 flex items-start gap-3 p-4">
         <div className="h-9 w-9 rounded-lg bg-[#eef2f7] text-[#4b5563] flex items-center justify-center text-[13px] font-semibold border border-[#e6e8eb]">
           {initials}
         </div>

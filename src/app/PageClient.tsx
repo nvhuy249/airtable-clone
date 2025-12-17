@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 import BaseCard from "./components/BaseCard";
@@ -38,7 +38,7 @@ const FILTERS = [
 ];
 
 const PENDING_DELETED_KEY = "airtable:pending-deleted-bases";
-const PENDING_DELETED_TTL = 5 * 60 * 1000; // 5 minutes
+const PENDING_DELETED_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
 type PendingDelete = { id: string; ts: number };
 type RenameState = { id: string; value: string } | null;
@@ -134,6 +134,17 @@ export default function PageClient({ user, bases }: PageClientProps) {
     const pending = pendingDeletedRef.current;
     return bases.filter((b) => !pending.has(b.id));
   });
+  const getPendingDeleted = useCallback(() => {
+    const pending =
+      typeof window === "undefined" ? pendingDeletedRef.current : loadPendingDeleted();
+    pendingDeletedRef.current = pending;
+    return pending;
+  }, []);
+  useEffect(() => {
+    const pending = getPendingDeleted();
+    setBasesState(bases.filter((b) => !pending.has(b.id)));
+  }, [bases, getPendingDeleted]);
+  const utils = api.useUtils();
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -233,12 +244,13 @@ export default function PageClient({ user, bases }: PageClientProps) {
   });
 
   const deleteBase = api.base.delete.useMutation({
-    onMutate: async ({ id }): Promise<{ prev: Base[]; id: string }> => {
+    onMutate: async ({ id }) => {
       const prev = basesState;
-      pendingDeletedRef.current.set(id, Date.now());
+      const ts = Date.now();
+      pendingDeletedRef.current.set(id, ts);
       persistPendingDeleted(pendingDeletedRef.current);
       setBasesState((old) => old.filter((b) => b.id !== id));
-      return { prev, id };
+      return { prev, id, ts };
     },
     onError: (_err, _vars, ctx) => {
       if (ctx?.id) pendingDeletedRef.current.delete(ctx.id);
@@ -248,6 +260,9 @@ export default function PageClient({ user, bases }: PageClientProps) {
     onSuccess: (_data, vars) => {
       pendingDeletedRef.current.delete(vars.id);
       persistPendingDeleted(pendingDeletedRef.current);
+    },
+    onSettled: () => {
+      void utils.base.list.invalidate();
     },
   });
 

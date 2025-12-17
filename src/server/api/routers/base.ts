@@ -125,59 +125,67 @@ export const baseRouter = createTRPCRouter({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.db.$transaction(
-        async (tx) => {
-          const base = await tx.base.findFirst({
-            where: { id: input.id, ownerId: ctx.session.user.id },
-            select: { id: true },
-          });
-          if (!base) {
-            return { deleted: 0 };
+      const base = await ctx.db.base.findFirst({
+        where: { id: input.id, ownerId: ctx.session.user.id },
+        select: { id: true },
+      });
+      if (!base) {
+        return { deleted: 0 };
+      }
+
+      const tables = await ctx.db.table.findMany({
+        where: { baseId: base.id },
+        select: { id: true },
+      });
+      const tableIds = tables.map((t) => t.id);
+
+      const BATCH = 10_000;
+      const deleteInChunks = async <T>(
+        ids: T[],
+        chunkSize: number,
+        action: (chunk: T[]) => Promise<void>,
+      ) => {
+        for (let i = 0; i < ids.length; i += chunkSize) {
+          const slice = ids.slice(i, i + chunkSize);
+          if (slice.length) {
+            await action(slice);
           }
+        }
+      };
 
-          const tables = await tx.table.findMany({
-            where: { baseId: base.id },
-            select: { id: true },
-          });
-          const tableIds = tables.map((t) => t.id);
+      if (tableIds.length) {
+        const recordIds = await ctx.db.record.findMany({
+          where: { tableId: { in: tableIds } },
+          select: { id: true },
+        });
+        const fieldIds = await ctx.db.field.findMany({
+          where: { tableId: { in: tableIds } },
+          select: { id: true },
+        });
 
-          if (tableIds.length) {
-            const recordIds = await tx.record.findMany({
-              where: { tableId: { in: tableIds } },
-              select: { id: true },
-            });
-            const fieldIds = await tx.field.findMany({
-              where: { tableId: { in: tableIds } },
-              select: { id: true },
-            });
+        const recordIdList = recordIds.map((r) => r.id);
+        const fieldIdList = fieldIds.map((f) => f.id);
 
-            const BATCH = 30000;
-            const recordIdList = recordIds.map((r) => r.id);
-            const fieldIdList = fieldIds.map((f) => f.id);
+        // Delete cells and records in batches to avoid long-running transactions.
+        await deleteInChunks(recordIdList, BATCH, async (chunk) => {
+          await ctx.db.cell.deleteMany({ where: { recordId: { in: chunk } } });
+          await ctx.db.record.deleteMany({ where: { id: { in: chunk } } });
+        });
 
-            if (recordIdList.length) {
-              for (let i = 0; i < recordIdList.length; i += BATCH) {
-                const slice = recordIdList.slice(i, i + BATCH);
-                await tx.cell.deleteMany({ where: { recordId: { in: slice } } });
-                await tx.record.deleteMany({ where: { id: { in: slice } } });
-              }
-            }
+        // Clean up any remaining cells tied to fields, then delete fields.
+        await deleteInChunks(fieldIdList, BATCH, async (chunk) => {
+          await ctx.db.cell.deleteMany({ where: { fieldId: { in: chunk } } });
+          await ctx.db.field.deleteMany({ where: { id: { in: chunk } } });
+        });
 
-            if (fieldIdList.length) {
-              await tx.cell.deleteMany({ where: { fieldId: { in: fieldIdList } } });
-              await tx.field.deleteMany({ where: { id: { in: fieldIdList } } });
-            }
+        // Delete tables in one go (table count is typically small).
+        await ctx.db.table.deleteMany({ where: { id: { in: tableIds } } });
+      }
 
-            await tx.table.deleteMany({ where: { id: { in: tableIds } } });
-          }
+      const result = await ctx.db.base.deleteMany({
+        where: { id: base.id, ownerId: ctx.session.user.id },
+      });
 
-          const result = await tx.base.deleteMany({
-            where: { id: base.id, ownerId: ctx.session.user.id },
-          });
-
-          return { deleted: result.count };
-        },
-        { timeout: 20000 },
-      );
+      return { deleted: result.count };
     }),
 });
