@@ -933,40 +933,6 @@ function BaseClientContent({
     [],
   );
 
-  const handleCellChange = (recordId: string, fieldId: string, value: string | number | null) => {
-    if (!activeTableId) return;
-
-    const resolvedRecordId = resolveRecordId(recordId);
-    const resolvedFieldId = resolveFieldId(fieldId);
-    logPendingState("handleCellChange", {
-      recordId,
-      resolvedRecordId,
-      fieldId,
-      resolvedFieldId,
-      value,
-    });
-
-    if (isOptimisticRecordId(resolvedRecordId) || isOptimisticFieldId(resolvedFieldId)) {
-      logPendingState("handleCellChange-queue", {
-        recordId,
-        resolvedRecordId,
-        fieldId,
-        resolvedFieldId,
-        value,
-      });
-      queuePendingCellEdit(resolvedRecordId, resolvedFieldId, value);
-      return;
-    }
-
-    logPendingState("immediate-updateCell", {
-      recordId: resolvedRecordId,
-      fieldId: resolvedFieldId,
-      value,
-    });
-    enqueueCellUpdate(resolvedRecordId, resolvedFieldId, value);
-    flushPendingCellEdits();
-  };
-
   const resolveRecordId = useCallback(
     (recordId: string) => optimisticRecordIdMapRef.current.get(recordId) ?? recordId,
     [],
@@ -1020,6 +986,51 @@ function BaseClientContent({
       enqueueCellUpdate(recordId, fieldId, edit.value);
     });
   }, [enqueueCellUpdate, logPendingState, resolveFieldId, resolveRecordId]);
+
+  const handleCellChange = useCallback(
+    (recordId: string, fieldId: string, value: string | number | null) => {
+      if (!activeTableId) return;
+
+      const resolvedRecordId = resolveRecordId(recordId);
+      const resolvedFieldId = resolveFieldId(fieldId);
+      logPendingState("handleCellChange", {
+        recordId,
+        resolvedRecordId,
+        fieldId,
+        resolvedFieldId,
+        value,
+      });
+
+      if (isOptimisticRecordId(resolvedRecordId) || isOptimisticFieldId(resolvedFieldId)) {
+        logPendingState("handleCellChange-queue", {
+          recordId,
+          resolvedRecordId,
+          fieldId,
+          resolvedFieldId,
+          value,
+        });
+        queuePendingCellEdit(resolvedRecordId, resolvedFieldId, value);
+        return;
+      }
+
+      logPendingState("immediate-updateCell", {
+        recordId: resolvedRecordId,
+        fieldId: resolvedFieldId,
+        value,
+      });
+      enqueueCellUpdate(resolvedRecordId, resolvedFieldId, value);
+      flushPendingCellEdits();
+    },
+    [
+      activeTableId,
+      enqueueCellUpdate,
+      flushPendingCellEdits,
+      logPendingState,
+      queuePendingCellEdit,
+      resolveFieldId,
+      resolveRecordId,
+    ],
+  );
 
   const addField = api.table.addField.useMutation({
     onMutate: async (variables) => {
