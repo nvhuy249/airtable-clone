@@ -102,6 +102,25 @@ export const baseRouter = createTRPCRouter({
       });
     }),
 
+  rename: protectedProcedure
+    .input(z.object({ id: z.string(), name: z.string().min(1).max(120) }))
+    .mutation(async ({ ctx, input }) => {
+      const base = await ctx.db.base.findFirst({
+        where: { id: input.id, ownerId: ctx.session.user.id },
+        select: { id: true },
+      });
+
+      if (!base) {
+        return { id: input.id, name: input.name, updatedAt: new Date() };
+      }
+
+      return ctx.db.base.update({
+        where: { id: base.id },
+        data: { name: input.name },
+        select: { id: true, name: true, updatedAt: true },
+      });
+    }),
+
   // Delete a base owned by the current user
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))

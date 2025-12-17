@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSession } from "next-auth/react";
 import Image from "next/image";
+import { SessionProvider } from "next-auth/react";
+import type { Session } from "next-auth";
 import AppRail from "./components/AppRail";
 import TableTopBar from "./components/TableTopBar";
 import TableToolbar from "./components/TableToolbar";
@@ -102,15 +103,15 @@ const serializeFilters = (f: { connector: "and" | "or"; conditions: FilterCondit
     })),
   });
 
-export default function BaseClient({
+function BaseClientContent({
   baseId,
   baseName,
   tables,
   user,
   loading = false,
 }: BaseClientProps) {
-  const { status } = useSession();
-  const isAuthed = status === "authenticated";
+  // Server already ensured auth; rely on provided user to gate queries client-side.
+  const isAuthed = Boolean(user?.id);
   const userInitial =
     user?.name?.charAt(0)?.toUpperCase() ??
     user?.email?.charAt(0)?.toUpperCase() ??
@@ -139,10 +140,44 @@ export default function BaseClient({
 
   const viewSidebarOpen = viewSidebarPinned || viewSidebarHoverOpen;
 
-  const logPendingState = useCallback((...args: unknown[]) => {
-    // Lightweight debug logger to trace cell edit flows and potential echoes.
-    console.log("[cell-debug]", ...args);
-  }, []);
+  const logPendingState = useCallback(
+    (event: string, payload: Record<string, unknown> = {}) => {
+      const pendingEdits = pendingCellEditsRef.current.size;
+      const queuedUpdates = cellUpdateQueuesRef.current.size;
+      const inFlight = Array.from(cellUpdateQueuesRef.current.values()).filter(
+        (v) => v.inFlight,
+      ).length;
+      // Lightweight debug logger to trace cell edit flows and potential echoes.
+      console.log("[cell-debug]", event, {
+        pendingEdits,
+        queuedUpdates,
+        inFlight,
+        ...payload,
+      });
+    },
+    [],
+  );
+
+  const logQueueSnapshot = useCallback(
+    (event: string) => {
+      const sampleQueue = Array.from(cellUpdateQueuesRef.current.entries())
+        .slice(0, 5)
+        .map(([key, value]) => ({
+          key,
+          pending: value.pending,
+          inFlight: value.inFlight,
+        }));
+      const sampleEdits = Array.from(pendingCellEditsRef.current.values())
+        .slice(0, 5)
+        .map((edit) => ({
+          recordId: edit.recordId,
+          fieldId: edit.fieldId,
+          value: edit.value,
+        }));
+      logPendingState(event, { sampleQueue, sampleEdits });
+    },
+    [logPendingState],
+  );
 
   const utils = api.useUtils();
   const tableQuery = api.table.byId.useQuery(
@@ -522,6 +557,17 @@ export default function BaseClient({
     }
   }, [activeTableId, activeViewId, storageKey, viewListQuery.data]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handler = () => {
+      if (pendingCellEditsRef.current.size || cellUpdateQueuesRef.current.size) {
+        logQueueSnapshot("beforeunload-with-pending");
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [logQueueSnapshot]);
+
   const persistViewConfig = useCallback(
     (overrides?: {
       filters?: { connector: "and" | "or"; conditions: FilterCondition[] };
@@ -809,10 +855,14 @@ export default function BaseClient({
       updateCell.mutate(
         { recordId, fieldId, value: valueToSend },
         {
-          onError: () => {
+          onError: (error) => {
             // Leave the pending value so it can be retried or overwritten by a newer edit.
             cellUpdateQueuesRef.current.set(key, { pending: valueToSend, inFlight: false });
-            logPendingState("cell-update-error", { recordId, fieldId });
+            logPendingState("cell-update-error", {
+              recordId,
+              fieldId,
+              message: error?.message,
+            });
           },
           onSettled: () => {
             const next = cellUpdateQueuesRef.current.get(key);
@@ -1583,5 +1633,21 @@ export default function BaseClient({
         </div>
       </div>
     </div>
+  );
+}
+
+export default function BaseClient(props: BaseClientProps) {
+  const initialSession = useMemo<Session | null>(() => {
+    if (!props.user) return null;
+    return {
+      user: props.user,
+      expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString(), // 30-day placeholder expiry
+    };
+  }, [props.user]);
+
+  return (
+    <SessionProvider session={initialSession ?? undefined}>
+      <BaseClientContent {...props} />
+    </SessionProvider>
   );
 }
