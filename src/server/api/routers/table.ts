@@ -450,7 +450,23 @@ export const tableRouter = createTRPCRouter({
       };
 
       const filterClause = buildFilterClause(effectiveConfig.filters, addBaseParam, fieldLookup);
-      // Global search is handled client-side for highlighting; keep all rows here.
+      const searchTerm = (effectiveConfig.search ?? "").trim().toLowerCase();
+      const searchClause = searchTerm
+        ? (() => {
+            const termParam = addBaseParam(searchTerm);
+            const hiddenExclusion =
+              hiddenFieldIds.length > 0
+                ? `AND c."fieldId" NOT IN (${hiddenFieldIds.map((id) => addBaseParam(id)).join(", ")})`
+                : "";
+            return `EXISTS (
+              SELECT 1
+              FROM "Cell" c
+              WHERE c."recordId" = r.id
+                ${hiddenExclusion}
+                AND ${buildTextValueExpr("c")} LIKE '%' || ${termParam} || '%'
+            )`;
+          })()
+        : "";
 
       const fetchParams = [...baseParams];
       const addFetchParam = (val: unknown) => {
@@ -470,6 +486,7 @@ export const tableRouter = createTRPCRouter({
           JOIN "Base" b ON b.id = t."baseId"
           WHERE b."ownerId" = $1 AND r."tableId" = $2
           ${filterClause ? `AND (${filterClause})` : ""}
+          ${searchClause ? `AND (${searchClause})` : ""}
         ),
         sorted AS (
           SELECT r.id, COUNT(*) OVER() as total_count

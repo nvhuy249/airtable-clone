@@ -317,6 +317,7 @@ function BaseClientContent({
   );
 
   const buildQueryViewConfig = useCallback(() => {
+    const trimmedSearch = globalSearch.trim();
     return {
       filters: {
         connector: appliedFilters.connector,
@@ -327,10 +328,10 @@ function BaseClientContent({
         })),
       },
       sorts: appliedSorts.map((s) => ({ fieldId: s.fieldId, direction: s.direction })),
-      search: "",
+      search: trimmedSearch,
       hiddenFieldIds,
     };
-  }, [appliedFilters, appliedSorts, hiddenFieldIds]);
+  }, [appliedFilters, appliedSorts, globalSearch, hiddenFieldIds]);
 
   const queryViewConfig = useMemo(() => buildQueryViewConfig(), [buildQueryViewConfig]);
 
@@ -341,6 +342,7 @@ function BaseClientContent({
       limit: RECORD_PAGE_SIZE,
       viewId: activeViewId ?? undefined,
       viewConfig: queryViewConfig,
+      globalSearch: queryViewConfig.search,
     };
   }, [RECORD_PAGE_SIZE, activeTableId, activeViewId, isOptimisticTableId, queryViewConfig]);
 
