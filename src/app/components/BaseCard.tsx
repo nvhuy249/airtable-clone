@@ -75,8 +75,8 @@ export default function BaseCard({ base, onDelete }: BaseCardProps) {
   return (
     <div
       className={`relative border rounded-xl bg-white transition shadow-sm w-full ${
-        hovered || menuOpen ? "shadow-md border-gray-300" : "border-gray-200"
-      }`}
+        hovered || menuOpen ? "shadow-md border-[#dfe3ea]" : "border-[#e6e8eb]"
+      } hover:bg-[#f9fafb]`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => {
         setHovered(false);
@@ -84,7 +84,7 @@ export default function BaseCard({ base, onDelete }: BaseCardProps) {
       }}
     >
       <div className="flex items-start gap-3 p-4">
-        <div className="h-10 w-10 rounded-lg bg-[#4c5566] text-white flex items-center justify-center text-base font-semibold">
+        <div className="h-9 w-9 rounded-lg bg-[#eef2f7] text-[#4b5563] flex items-center justify-center text-[13px] font-semibold border border-[#e6e8eb]">
           {initials}
         </div>
         <div className="flex-1">
@@ -92,13 +92,13 @@ export default function BaseCard({ base, onDelete }: BaseCardProps) {
             <div className="space-y-1">
               <Link
                 href={`/base/${base.id}`}
-                className="text-sm font-semibold text-[#0f2cbf] hover:underline truncate block max-w-[190px]"
+                className="text-[14px] font-medium text-[#1f2933] hover:underline truncate block max-w-[190px]"
               >
                 {base.name || "Untitled Base"}
               </Link>
-              <div className="flex items-center gap-1 text-xs text-gray-600">
-                {hovered && <TbDatabase className="text-gray-500" />}
-                <span>{hovered ? "Open data" : createdLabel}</span>
+              <div className="flex items-center gap-1 text-[12px] text-[#6b7280]">
+                {hovered && <TbDatabase className="text-[#6b7280]" />}
+                <span className="truncate">{hovered ? "Open data" : createdLabel}</span>
               </div>
             </div>
 
@@ -107,7 +107,7 @@ export default function BaseCard({ base, onDelete }: BaseCardProps) {
                 <button
                   type="button"
                   onClick={toggleStar}
-                  className="h-9 w-9 rounded-full border border-gray-200 flex items-center justify-center hover:bg-gray-100 text-gray-600"
+                  className="h-8 w-8 rounded-full border border-[#e6e8eb] flex items-center justify-center hover:bg-[#f2f4f7] text-[#6b7280]"
                   aria-pressed={starred}
                   aria-label={starred ? "Unstar base" : "Star base"}
                 >
@@ -120,7 +120,7 @@ export default function BaseCard({ base, onDelete }: BaseCardProps) {
                 <button
                   type="button"
                   onClick={toggleMenu}
-                  className="h-9 w-9 rounded-full border border-gray-200 flex items-center justify-center hover:bg-gray-100 text-gray-600"
+                  className="h-8 w-8 rounded-full border border-[#e6e8eb] flex items-center justify-center hover:bg-[#f2f4f7] text-[#6b7280]"
                   aria-haspopup="menu"
                   aria-expanded={menuOpen}
                   aria-label="Open base menu"
@@ -134,8 +134,8 @@ export default function BaseCard({ base, onDelete }: BaseCardProps) {
       </div>
 
       {menuOpen && (
-        <div className="absolute right-3 top-[56px] z-20 w-64 rounded-xl border border-gray-200 bg-white shadow-lg">
-          <div className="py-2 text-sm text-gray-700">
+        <div className="absolute right-3 top-[56px] z-20 w-64 rounded-xl border border-[#e6e8eb] bg-white shadow-lg">
+          <div className="py-2 text-sm text-[#1f2933]">
             <MenuItem icon={<FiEdit2 />} label="Rename" onClick={closeMenu} />
             <MenuItem icon={<FiCopy />} label="Duplicate" onClick={closeMenu} />
             <MenuItem
@@ -153,7 +153,7 @@ export default function BaseCard({ base, onDelete }: BaseCardProps) {
               label="Customize appearance"
               onClick={closeMenu}
             />
-            <div className="my-1 border-t" />
+            <div className="my-1 border-t border-[#e6e8eb]" />
             <MenuItem
               icon={<FiTrash2 />}
               label="Delete"

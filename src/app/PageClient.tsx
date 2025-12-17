@@ -9,6 +9,7 @@ import QuickActions from "./components/QuickActions";
 import CreateBaseModal from "./components/CreateBaseModal";
 import { useRouter } from "next/navigation";
 import { api } from "~/trpc/react"; 
+import { FiSquare, FiMenu } from "react-icons/fi";
 
 import type { Base } from "./components/BaseCard";
 
@@ -23,10 +24,10 @@ interface PageClientProps {
 }
 
 const FILTERS = [
-  { label: "Today", value: "today" },
-  { label: "In the past 7 days", value: "7days" },
-  { label: "In the past 30 days", value: "30days" },
-  { label: "Anytime", value: "any" },
+  { label: "today", value: "today" },
+  { label: "in the past 7 days", value: "7days" },
+  { label: "in the past 30 days", value: "30days" },
+  { label: "anytime", value: "any" },
 ];
 
 const PENDING_DELETED_KEY = "airtable:pending-deleted-bases";
@@ -95,10 +96,10 @@ export default function PageClient({ user, bases }: PageClientProps) {
   // Sidebar expand logic
   const expanded = sidebarOpen || sidebarHover;
 
-  // Push content only when *clicked*, not on hover
-  const contentMargin = sidebarOpen ? "ml-64" : "ml-16";
+  // Pad content instead of margin to avoid horizontal overflow when expanded
+  const contentPadding = sidebarOpen ? "pl-[256px]" : "pl-16";
 
-  // Fake date filtering demo — update when you have timestamps
+  // Fake date filtering demo â€” update when you have timestamps
   const filteredBases = basesState; // (modify when timestamps added)
 
   const createBase = api.base.create.useMutation({
@@ -173,7 +174,7 @@ export default function PageClient({ user, bases }: PageClientProps) {
   };
 
   return (
-    <div className="min-h-screen bg-[#f7f8fa] pt-[64px]">
+    <div className="min-h-screen bg-[#f8f9fb] pt-[64px] text-[13px] text-[#1f2933] overflow-x-hidden">
       {/* SIDEBAR */}
       <Sidebar
         expanded={expanded}
@@ -183,25 +184,26 @@ export default function PageClient({ user, bases }: PageClientProps) {
       />
 
       {/* MAIN CONTENT WRAPPER */}
-      <div className={`transition-all duration-300 ${contentMargin}`}>
+      <div className={`transition-all duration-300 pr-6 ${contentPadding}`}>
         <Topbar user={user} onToggleSidebar={() => setSidebarOpen((p) => !p)} />
 
-        <main className="px-14 pt-10 pb-20 max-w-screen-xl mx-auto">
-          <h1 className="text-3xl font-semibold mb-6">Home</h1>
+        <main className="w-full max-w-[1800px] mr-auto pl-10 pt-10 pb-16 space-y-6">
+          <h1 className="text-[28px] font-semibold text-[#1f2933] leading-[1.1]">Home</h1>
 
           <Banner />
 
           <QuickActions />
 
           {/* SECTION HEADER (Filter + View Toggle) */}
-          <div className="flex items-center justify-between mt-10 mb-4">
+          <div className="flex items-center justify-between pt-4">
             {/* Filter Dropdown */}
             <div className="relative">
+              <span className="text-gray-500">Opened</span>
               <select
-                className="px-3 py-1 text-sm text-gray-500 cursor-pointer"
+                className="py-1.5 text-[13px] text-gray-500 bg-[#f8f9fb] hover:border-[#d9dbe0] focus:outline-none"
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
-              > 
+              >
                 {FILTERS.map((f) => (
                   <option key={f.value} value={f.value}>
                     {f.label}
@@ -211,40 +213,40 @@ export default function PageClient({ user, bases }: PageClientProps) {
             </div>
 
             {/* View Toggle Buttons */}
-            <div className="flex gap-3">
+            <div className="flex gap-2">
               <button
                 onClick={() => setView("list")}
-                className={`cursor-pointer px-2 py-1 rounded ${
+                className={`px-3 py-1.5 rounded-full border ${
                   view === "list"
-                    ? "bg-gray-200"
-                    : "hover:bg-gray-100 text-gray-500"
+                    ? "border-[#d8dce5] bg-white text-[#1f2933]"
+                    : "border-transparent bg-transparent text-[#6b7280] hover:bg-white/70 hover:border-[#e6e8eb]"
                 }`}
               >
-                ☰
+                <FiMenu className="h-4 w-4" />
               </button>
               <button
                 onClick={() => setView("grid")}
-                className={`cursor-pointer px-2 py-1 rounded ${
+                className={`px-3 py-1.5 rounded-full border ${
                   view === "grid"
-                    ? "bg-gray-200"
-                    : "hover:bg-gray-100 text-gray-500"
+                    ? "border-[#d8dce5] bg-white text-[#1f2933]"
+                    : "border-transparent bg-transparent text-[#6b7280] hover:bg-white/70 hover:border-[#e6e8eb]"
                 }`}
               >
-                ⊞
+                <FiSquare className="h-4 w-4" />
               </button>
             </div>
           </div>
 
           {/* EMPTY STATE */}
           {filteredBases.length === 0 ? (
-            <div className="text-center py-20 text-gray-600">
-              <p className="text-lg font-medium mb-2">
-                You haven’t opened anything recently
+            <div className="text-center py-20 text-[#6b7280]">
+              <p className="text-[16px] font-semibold mb-2 text-[#1f2933]">
+                You haven&apos;t opened anything recently
               </p>
-              <p className="mb-4 text-sm">
+              <p className="mb-4 text-[13px]">
                 Apps that you have recently opened will appear here.
               </p>
-              <button className="cursor-pointer px-4 py-2 bg-white border rounded-md shadow-sm hover:bg-gray-50">
+              <button className="cursor-pointer px-4 py-2 bg-white border border-[#e6e8eb] rounded-full shadow-sm hover:bg-[#f2f4f7] text-[13px] text-[#1f2933]">
                 Go to all workspaces
               </button>
             </div>
@@ -252,7 +254,7 @@ export default function PageClient({ user, bases }: PageClientProps) {
             <>
               {/* GRID VIEW */}
               {view === "grid" && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                   {filteredBases.map((base) => (
                     <BaseCard
                       key={base.id}

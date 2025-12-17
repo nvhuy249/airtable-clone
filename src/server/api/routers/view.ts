@@ -15,12 +15,13 @@ export const viewRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       let views = await ctx.db.view.findMany({
         where: { tableId: input.tableId, table: { base: { ownerId: ctx.session.user.id } } },
-        orderBy: { createdAt: "asc" },
+        orderBy: [{ order: "asc" }, { createdAt: "asc" }],
         select: {
           id: true,
           name: true,
           config: true,
           tableId: true,
+          order: true,
           createdAt: true,
           updatedAt: true,
         },
@@ -32,12 +33,14 @@ export const viewRouter = createTRPCRouter({
             tableId: input.tableId,
             name: "Grid view",
             config: defaultViewConfig as Prisma.InputJsonValue,
+            order: 0,
           },
           select: {
             id: true,
             name: true,
             config: true,
             tableId: true,
+            order: true,
             createdAt: true,
             updatedAt: true,
           },
@@ -48,6 +51,7 @@ export const viewRouter = createTRPCRouter({
       return views.map((view, idx) => ({
         ...view,
         config: parseViewConfig(view.config),
+        order: view.order ?? idx,
         isDefault: idx === 0,
       }));
     }),
@@ -71,7 +75,7 @@ export const viewRouter = createTRPCRouter({
 
       const existingViews = await ctx.db.view.findMany({
         where: { tableId: input.tableId },
-        select: { name: true },
+        select: { name: true, order: true },
       });
 
       const existingNames = new Set(existingViews.map((v) => v.name));
@@ -109,9 +113,19 @@ export const viewRouter = createTRPCRouter({
       const name = deriveName();
 
       const config = parseViewConfig(input.config ?? defaultViewConfig);
+      const maxExistingOrder = existingViews.reduce(
+        (max, v, idx) => Math.max(max, v.order ?? idx),
+        -1,
+      );
+      const nextOrder = maxExistingOrder + 1;
 
       const view = await ctx.db.view.create({
-        data: { tableId: input.tableId, name, config: config as Prisma.InputJsonValue },
+        data: {
+          tableId: input.tableId,
+          name,
+          config: config as Prisma.InputJsonValue,
+          order: nextOrder,
+        },
       });
 
       return { ...view, config, isDefault: existingViews.length === 0 };
@@ -173,5 +187,42 @@ export const viewRouter = createTRPCRouter({
       await ctx.db.view.delete({ where: { id: input.viewId } });
 
       return { viewId: input.viewId, tableId: view.tableId };
+    }),
+
+  reorder: protectedProcedure
+    .input(z.object({ tableId: z.string(), orderedIds: z.array(z.string()) }))
+    .mutation(async ({ ctx, input }) => {
+      const views = await ctx.db.view.findMany({
+        where: { tableId: input.tableId, table: { base: { ownerId: ctx.session.user.id } } },
+        select: { id: true },
+      });
+
+      const existingIds = new Set(views.map((v) => v.id));
+      const providedIds = new Set(input.orderedIds);
+
+      if (existingIds.size === 0 || input.orderedIds.length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "No views to reorder" });
+      }
+
+      if (
+        existingIds.size !== providedIds.size ||
+        input.orderedIds.some((id) => !existingIds.has(id))
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Ordered ids must include every view exactly once",
+        });
+      }
+
+      await ctx.db.$transaction(
+        input.orderedIds.map((id, idx) =>
+          ctx.db.view.update({
+            where: { id },
+            data: { order: idx },
+          }),
+        ),
+      );
+
+      return { tableId: input.tableId, orderedIds: input.orderedIds };
     }),
 });

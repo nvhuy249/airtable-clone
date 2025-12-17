@@ -84,6 +84,14 @@ type PersistedState = {
 
 const buildStorageKey = (baseId: string) => `airtable:last-state:${baseId}`;
 
+const normalizeAndSortViews = <T extends { id: string; order?: number }>(views: T[]) =>
+  [...views]
+    .map((view, idx) => ({ ...view, order: view.order ?? idx }))
+    .sort(
+      (a, b) =>
+        (a.order ?? 0) - (b.order ?? 0) || (a.id ?? "").localeCompare(b.id ?? ""),
+    );
+
 const serializeFilters = (f: { connector: "and" | "or"; conditions: FilterCondition[] }) =>
   JSON.stringify({
     connector: f.connector,
@@ -160,7 +168,7 @@ export default function BaseClient({
     onSuccess: (view) => {
       setActiveViewId(view.id);
       utils.view.list.setData({ tableId: view.tableId }, (prev) =>
-        prev ? [...prev, view] : [view],
+        normalizeAndSortViews(prev ? [...prev, view] : [view]),
       );
       if (recordsQueryInput) {
         void utils.table.records.invalidate(recordsQueryInput);
@@ -195,6 +203,37 @@ export default function BaseClient({
       if (recordsQueryInput) {
         void utils.table.records.invalidate(recordsQueryInput);
       }
+    },
+  });
+  const reorderViews = api.view.reorder.useMutation({
+    onMutate: async ({ tableId, orderedIds }) => {
+      await utils.view.list.cancel({ tableId });
+      const previous = utils.view.list.getData({ tableId });
+      if (previous) {
+        const ordered = orderedIds
+          .map((id) => previous.find((v) => v.id === id))
+          .filter(Boolean) as typeof previous;
+        if (ordered.length === previous.length) {
+          utils.view.list.setData(
+            { tableId },
+            normalizeAndSortViews(
+              ordered.map((v, idx) => ({
+                ...v,
+                order: idx,
+              })),
+            ),
+          );
+        }
+      }
+      return { previous };
+    },
+    onError: (_err, variables, context) => {
+      if (context?.previous) {
+        utils.view.list.setData({ tableId: variables.tableId }, context.previous);
+      }
+    },
+    onSettled: (_data, _error, variables) => {
+      void utils.view.list.invalidate({ tableId: variables.tableId });
     },
   });
   const [hiddenFieldIds, setHiddenFieldIds] = useState<string[]>([]);
@@ -1451,6 +1490,10 @@ export default function BaseClient({
                 deleteView.mutate({ viewId });
               }}
               onDuplicateViewAction={(viewId) => duplicateView(viewId)}
+              onReorderViewAction={(orderedIds) => {
+                if (!activeTableId || reorderViews.isPending) return;
+                reorderViews.mutate({ tableId: activeTableId, orderedIds });
+              }}
               onCreateViewAction={() => {
                 if (!activeTableId || createView.isPending) return;
                 createView.mutate({

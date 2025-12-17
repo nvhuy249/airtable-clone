@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif,
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
@@ -15,4 +15,8 @@ button {
 
 .cursor-pointer {
   cursor: pointer;
+}
+
+* {
+  transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
 }

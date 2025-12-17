@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState, useRef, useEffect } from "react";
-import { LayoutGrid, Plus, Search, MoreVertical, Trash2 } from "lucide-react";
+import { useMemo, useState, useRef, useEffect, useCallback } from "react";
+import { GripVertical, LayoutGrid, MoreVertical, Plus, Search, Star, Trash2 } from "lucide-react";
 
 type ViewSidebarProps = {
   loading?: boolean;
@@ -12,6 +12,7 @@ type ViewSidebarProps = {
   onRenameViewAction?: (id: string, name: string) => void;
   onDeleteViewAction?: (id: string) => void;
   onDuplicateViewAction?: (id: string) => void;
+  onReorderViewAction?: (orderedIds: string[]) => void;
 };
 
 export default function ViewSidebar({
@@ -23,6 +24,7 @@ export default function ViewSidebar({
   onRenameViewAction,
   onDeleteViewAction,
   onDuplicateViewAction,
+  onReorderViewAction,
 }: ViewSidebarProps) {
   const [search, setSearch] = useState("");
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
@@ -33,6 +35,8 @@ export default function ViewSidebar({
     x: number;
     y: number;
   }>({ viewId: null, x: 0, y: 0 });
+  const [draggingViewId, setDraggingViewId] = useState<string | null>(null);
+  const [dragOverViewId, setDragOverViewId] = useState<string | null>(null);
 
   const createMenuRef = useRef<HTMLDivElement | null>(null);
   const createTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -58,6 +62,21 @@ export default function ViewSidebar({
     setEditingViewId(id);
     setEditingName(name);
   };
+
+  const reorderById = useCallback(
+    (sourceId: string, targetId: string) => {
+      if (!sourceId || !targetId || sourceId === targetId) return;
+      const next = [...views];
+      const fromIndex = next.findIndex((v) => v.id === sourceId);
+      const toIndex = next.findIndex((v) => v.id === targetId);
+      if (fromIndex === -1 || toIndex === -1) return;
+      const [moved] = next.splice(fromIndex, 1);
+      if (!moved) return;
+      next.splice(toIndex, 0, moved);
+      onReorderViewAction?.(next.map((v) => v.id));
+    },
+    [views, onReorderViewAction],
+  );
 
   const commitEditing = () => {
     if (editingViewId) {
@@ -155,15 +174,35 @@ export default function ViewSidebar({
       <div className="mt-1 flex-1 overflow-auto px-0">
         {filteredViews.map((view) => {
           const isActive = view.id === activeViewId;
+          const isDragOver = dragOverViewId === view.id && draggingViewId !== view.id;
           return (
-            <div key={view.id} className="px-0 group">
+            <div
+              key={view.id}
+              className="px-0 group"
+              onDragOver={(e) => {
+                if (!draggingViewId || draggingViewId === view.id) return;
+                e.preventDefault();
+                setDragOverViewId(view.id);
+              }}
+              onDragLeave={() => {
+                if (dragOverViewId === view.id) setDragOverViewId(null);
+              }}
+              onDrop={(e) => {
+                if (!draggingViewId || draggingViewId === view.id) return;
+                e.preventDefault();
+                const sourceId = e.dataTransfer.getData("text/plain") || draggingViewId;
+                reorderById(sourceId, view.id);
+                setDragOverViewId(null);
+                setDraggingViewId(null);
+              }}
+            >
               <div className="relative">
                 <div
                   role="button"
                   tabIndex={0}
-                  className={`flex w-full items-center justify-between rounded-r-md pl-4 pr-2 py-2 text-[13px] ${
+                  className={`flex w-full items-center justify-between rounded-r-md pl-2 pr-2 py-2 text-[13px] transition-all duration-150 ${
                     isActive ? "bg-gray-200 text-black" : "text-gray-800 hover:bg-gray-50"
-                  }`}
+                  } ${isDragOver ? "ring-1 ring-blue-200 translate-y-[1px]" : ""}`}
                   onClick={() => onSelectViewAction?.(view.id)}
                   onDoubleClick={() => startEditing(view.id, view.name)}
                   onContextMenu={(e) => {
@@ -178,7 +217,10 @@ export default function ViewSidebar({
                   }}
                 >
                   <span className="flex items-center gap-2">
-                    <LayoutGrid className="h-3.5 w-3.5 text-[#2557e0]" />
+                    <div className="relative h-4 w-4">
+                      <LayoutGrid className="h-3.5 w-3.5 text-[#2557e0] group-hover:hidden" />
+                      <Star className="absolute inset-0 h-3.5 w-3.5 text-gray-500 hidden group-hover:inline" />
+                    </div>
                     {editingViewId === view.id ? (
                       <input
                         autoFocus
@@ -195,20 +237,45 @@ export default function ViewSidebar({
                         className="w-40 rounded border border-gray-300 px-2 py-0.5 text-[13px] focus:outline-none"
                       />
                     ) : (
-                      <span>{view.name}</span>
+                      <span className="truncate">{view.name}</span>
                     )}
                   </span>
-                  <button
-                    type="button"
-                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
-                      setContextMenu({ viewId: view.id, x: rect.right, y: rect.bottom });
-                    }}
-                  >
-                    <MoreVertical className="h-3.5 w-3.5 text-[#2557e0]" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                        setContextMenu({ viewId: view.id, x: rect.right, y: rect.bottom });
+                      }}
+                    >
+                      <MoreVertical className="h-3.5 w-3.5 text-[#2557e0]" />
+                    </button>
+                    <button
+                      type="button"
+                      className={`cursor-grab active:cursor-grabbing p-1 text-gray-400 hover:text-gray-600 transition-opacity ${
+                        draggingViewId === view.id
+                          ? "opacity-100 cursor-grabbing"
+                          : "opacity-0 group-hover:opacity-100"
+                      }`}
+                      draggable
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onDragStart={(e) => {
+                        setDraggingViewId(view.id);
+                        e.dataTransfer.setData("text/plain", view.id);
+                        e.dataTransfer.effectAllowed = "move";
+                      }}
+                      onDragEnd={() => {
+                        setDraggingViewId(null);
+                        setDragOverViewId(null);
+                      }}
+                      aria-label="Drag to reorder view"
+                    >
+                      <GripVertical className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

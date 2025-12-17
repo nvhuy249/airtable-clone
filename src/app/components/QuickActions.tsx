@@ -19,14 +19,14 @@ const cards = [
 
 export default function QuickActions() {
   return (
-    <div className="grid grid-cols-4 gap-6 mt-8">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       {cards.map((c) => (
         <div
           key={c.title}
-          className="bg-white border rounded-lg p-6 shadow-sm hover:shadow-md transition"
+          className="bg-white border border-[#e6e8eb] rounded-lg p-4 shadow-sm hover:shadow-md hover:-translate-y-[1px] transition"
         >
-          <h4 className="font-semibold text-gray-800">{c.title}</h4>
-          <p className="text-gray-500 text-sm mt-2">{c.description}</p>
+          <h4 className="font-medium text-[#1f2933] text-[14px]">{c.title}</h4>
+          <p className="text-[#6b7280] text-[13px] mt-2 leading-relaxed">{c.description}</p>
         </div>
       ))}
     </div>

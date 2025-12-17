@@ -13073,14 +13073,25 @@ export namespace Prisma {
 
   export type AggregateView = {
     _count: ViewCountAggregateOutputType | null
+    _avg: ViewAvgAggregateOutputType | null
+    _sum: ViewSumAggregateOutputType | null
     _min: ViewMinAggregateOutputType | null
     _max: ViewMaxAggregateOutputType | null
+  }
+
+  export type ViewAvgAggregateOutputType = {
+    order: number | null
+  }
+
+  export type ViewSumAggregateOutputType = {
+    order: number | null
   }
 
   export type ViewMinAggregateOutputType = {
     id: string | null
     name: string | null
     tableId: string | null
+    order: number | null
     createdAt: Date | null
     updatedAt: Date | null
   }
@@ -13089,6 +13100,7 @@ export namespace Prisma {
     id: string | null
     name: string | null
     tableId: string | null
+    order: number | null
     createdAt: Date | null
     updatedAt: Date | null
   }
@@ -13097,6 +13109,7 @@ export namespace Prisma {
     id: number
     name: number
     tableId: number
+    order: number
     config: number
     createdAt: number
     updatedAt: number
@@ -13104,10 +13117,19 @@ export namespace Prisma {
   }
 
 
+  export type ViewAvgAggregateInputType = {
+    order?: true
+  }
+
+  export type ViewSumAggregateInputType = {
+    order?: true
+  }
+
   export type ViewMinAggregateInputType = {
     id?: true
     name?: true
     tableId?: true
+    order?: true
     createdAt?: true
     updatedAt?: true
   }
@@ -13116,6 +13138,7 @@ export namespace Prisma {
     id?: true
     name?: true
     tableId?: true
+    order?: true
     createdAt?: true
     updatedAt?: true
   }
@@ -13124,6 +13147,7 @@ export namespace Prisma {
     id?: true
     name?: true
     tableId?: true
+    order?: true
     config?: true
     createdAt?: true
     updatedAt?: true
@@ -13168,6 +13192,18 @@ export namespace Prisma {
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
+     * Select which fields to average
+    **/
+    _avg?: ViewAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: ViewSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
      * Select which fields to find the minimum value
     **/
     _min?: ViewMinAggregateInputType
@@ -13198,6 +13234,8 @@ export namespace Prisma {
     take?: number
     skip?: number
     _count?: ViewCountAggregateInputType | true
+    _avg?: ViewAvgAggregateInputType
+    _sum?: ViewSumAggregateInputType
     _min?: ViewMinAggregateInputType
     _max?: ViewMaxAggregateInputType
   }
@@ -13206,10 +13244,13 @@ export namespace Prisma {
     id: string
     name: string
     tableId: string
+    order: number
     config: JsonValue
     createdAt: Date
     updatedAt: Date
     _count: ViewCountAggregateOutputType | null
+    _avg: ViewAvgAggregateOutputType | null
+    _sum: ViewSumAggregateOutputType | null
     _min: ViewMinAggregateOutputType | null
     _max: ViewMaxAggregateOutputType | null
   }
@@ -13232,6 +13273,7 @@ export namespace Prisma {
     id?: boolean
     name?: boolean
     tableId?: boolean
+    order?: boolean
     config?: boolean
     createdAt?: boolean
     updatedAt?: boolean
@@ -13242,6 +13284,7 @@ export namespace Prisma {
     id?: boolean
     name?: boolean
     tableId?: boolean
+    order?: boolean
     config?: boolean
     createdAt?: boolean
     updatedAt?: boolean
@@ -13252,6 +13295,7 @@ export namespace Prisma {
     id?: boolean
     name?: boolean
     tableId?: boolean
+    order?: boolean
     config?: boolean
     createdAt?: boolean
     updatedAt?: boolean
@@ -13262,12 +13306,13 @@ export namespace Prisma {
     id?: boolean
     name?: boolean
     tableId?: boolean
+    order?: boolean
     config?: boolean
     createdAt?: boolean
     updatedAt?: boolean
   }
 
-  export type ViewOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "name" | "tableId" | "config" | "createdAt" | "updatedAt", ExtArgs["result"]["view"]>
+  export type ViewOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "name" | "tableId" | "order" | "config" | "createdAt" | "updatedAt", ExtArgs["result"]["view"]>
   export type ViewInclude<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     table?: boolean | TableDefaultArgs<ExtArgs>
   }
@@ -13287,6 +13332,7 @@ export namespace Prisma {
       id: string
       name: string
       tableId: string
+      order: number
       config: Prisma.JsonValue
       createdAt: Date
       updatedAt: Date
@@ -13717,6 +13763,7 @@ export namespace Prisma {
     readonly id: FieldRef<"View", 'String'>
     readonly name: FieldRef<"View", 'String'>
     readonly tableId: FieldRef<"View", 'String'>
+    readonly order: FieldRef<"View", 'Int'>
     readonly config: FieldRef<"View", 'Json'>
     readonly createdAt: FieldRef<"View", 'DateTime'>
     readonly updatedAt: FieldRef<"View", 'DateTime'>
@@ -14273,6 +14320,7 @@ export namespace Prisma {
     id: 'id',
     name: 'name',
     tableId: 'tableId',
+    order: 'order',
     config: 'config',
     createdAt: 'createdAt',
     updatedAt: 'updatedAt'
@@ -15070,6 +15118,7 @@ export namespace Prisma {
     id?: StringFilter<"View"> | string
     name?: StringFilter<"View"> | string
     tableId?: StringFilter<"View"> | string
+    order?: IntFilter<"View"> | number
     config?: JsonFilter<"View">
     createdAt?: DateTimeFilter<"View"> | Date | string
     updatedAt?: DateTimeFilter<"View"> | Date | string
@@ -15080,6 +15129,7 @@ export namespace Prisma {
     id?: SortOrder
     name?: SortOrder
     tableId?: SortOrder
+    order?: SortOrder
     config?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
@@ -15093,6 +15143,7 @@ export namespace Prisma {
     NOT?: ViewWhereInput | ViewWhereInput[]
     name?: StringFilter<"View"> | string
     tableId?: StringFilter<"View"> | string
+    order?: IntFilter<"View"> | number
     config?: JsonFilter<"View">
     createdAt?: DateTimeFilter<"View"> | Date | string
     updatedAt?: DateTimeFilter<"View"> | Date | string
@@ -15103,12 +15154,15 @@ export namespace Prisma {
     id?: SortOrder
     name?: SortOrder
     tableId?: SortOrder
+    order?: SortOrder
     config?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
     _count?: ViewCountOrderByAggregateInput
+    _avg?: ViewAvgOrderByAggregateInput
     _max?: ViewMaxOrderByAggregateInput
     _min?: ViewMinOrderByAggregateInput
+    _sum?: ViewSumOrderByAggregateInput
   }
 
   export type ViewScalarWhereWithAggregatesInput = {
@@ -15118,6 +15172,7 @@ export namespace Prisma {
     id?: StringWithAggregatesFilter<"View"> | string
     name?: StringWithAggregatesFilter<"View"> | string
     tableId?: StringWithAggregatesFilter<"View"> | string
+    order?: IntWithAggregatesFilter<"View"> | number
     config?: JsonWithAggregatesFilter<"View">
     createdAt?: DateTimeWithAggregatesFilter<"View"> | Date | string
     updatedAt?: DateTimeWithAggregatesFilter<"View"> | Date | string
@@ -15791,6 +15846,7 @@ export namespace Prisma {
   export type ViewCreateInput = {
     id?: string
     name: string
+    order?: number
     config: JsonNullValueInput | InputJsonValue
     createdAt?: Date | string
     updatedAt?: Date | string
@@ -15801,6 +15857,7 @@ export namespace Prisma {
     id?: string
     name: string
     tableId: string
+    order?: number
     config: JsonNullValueInput | InputJsonValue
     createdAt?: Date | string
     updatedAt?: Date | string
@@ -15809,6 +15866,7 @@ export namespace Prisma {
   export type ViewUpdateInput = {
     id?: StringFieldUpdateOperationsInput | string
     name?: StringFieldUpdateOperationsInput | string
+    order?: IntFieldUpdateOperationsInput | number
     config?: JsonNullValueInput | InputJsonValue
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -15819,6 +15877,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     name?: StringFieldUpdateOperationsInput | string
     tableId?: StringFieldUpdateOperationsInput | string
+    order?: IntFieldUpdateOperationsInput | number
     config?: JsonNullValueInput | InputJsonValue
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -15828,6 +15887,7 @@ export namespace Prisma {
     id?: string
     name: string
     tableId: string
+    order?: number
     config: JsonNullValueInput | InputJsonValue
     createdAt?: Date | string
     updatedAt?: Date | string
@@ -15836,6 +15896,7 @@ export namespace Prisma {
   export type ViewUpdateManyMutationInput = {
     id?: StringFieldUpdateOperationsInput | string
     name?: StringFieldUpdateOperationsInput | string
+    order?: IntFieldUpdateOperationsInput | number
     config?: JsonNullValueInput | InputJsonValue
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -15845,6 +15906,7 @@ export namespace Prisma {
     id?: StringFieldUpdateOperationsInput | string
     name?: StringFieldUpdateOperationsInput | string
     tableId?: StringFieldUpdateOperationsInput | string
+    order?: IntFieldUpdateOperationsInput | number
     config?: JsonNullValueInput | InputJsonValue
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -16546,15 +16608,21 @@ export namespace Prisma {
     id?: SortOrder
     name?: SortOrder
     tableId?: SortOrder
+    order?: SortOrder
     config?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
+  }
+
+  export type ViewAvgOrderByAggregateInput = {
+    order?: SortOrder
   }
 
   export type ViewMaxOrderByAggregateInput = {
     id?: SortOrder
     name?: SortOrder
     tableId?: SortOrder
+    order?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
   }
@@ -16563,8 +16631,13 @@ export namespace Prisma {
     id?: SortOrder
     name?: SortOrder
     tableId?: SortOrder
+    order?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
+  }
+
+  export type ViewSumOrderByAggregateInput = {
+    order?: SortOrder
   }
   export type JsonWithAggregatesFilter<$PrismaModel = never> =
     | PatchUndefined<
@@ -18093,6 +18166,7 @@ export namespace Prisma {
   export type ViewCreateWithoutTableInput = {
     id?: string
     name: string
+    order?: number
     config: JsonNullValueInput | InputJsonValue
     createdAt?: Date | string
     updatedAt?: Date | string
@@ -18101,6 +18175,7 @@ export namespace Prisma {
   export type ViewUncheckedCreateWithoutTableInput = {
     id?: string
     name: string
+    order?: number
     config: JsonNullValueInput | InputJsonValue
     createdAt?: Date | string
     updatedAt?: Date | string
@@ -18222,6 +18297,7 @@ export namespace Prisma {
     id?: StringFilter<"View"> | string
     name?: StringFilter<"View"> | string
     tableId?: StringFilter<"View"> | string
+    order?: IntFilter<"View"> | number
     config?: JsonFilter<"View">
     createdAt?: DateTimeFilter<"View"> | Date | string
     updatedAt?: DateTimeFilter<"View"> | Date | string
@@ -18794,6 +18870,7 @@ export namespace Prisma {
   export type ViewCreateManyTableInput = {
     id?: string
     name: string
+    order?: number
     config: JsonNullValueInput | InputJsonValue
     createdAt?: Date | string
     updatedAt?: Date | string
@@ -18854,6 +18931,7 @@ export namespace Prisma {
   export type ViewUpdateWithoutTableInput = {
     id?: StringFieldUpdateOperationsInput | string
     name?: StringFieldUpdateOperationsInput | string
+    order?: IntFieldUpdateOperationsInput | number
     config?: JsonNullValueInput | InputJsonValue
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -18862,6 +18940,7 @@ export namespace Prisma {
   export type ViewUncheckedUpdateWithoutTableInput = {
     id?: StringFieldUpdateOperationsInput | string
     name?: StringFieldUpdateOperationsInput | string
+    order?: IntFieldUpdateOperationsInput | number
     config?: JsonNullValueInput | InputJsonValue
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -18870,6 +18949,7 @@ export namespace Prisma {
   export type ViewUncheckedUpdateManyWithoutTableInput = {
     id?: StringFieldUpdateOperationsInput | string
     name?: StringFieldUpdateOperationsInput | string
+    order?: IntFieldUpdateOperationsInput | number
     config?: JsonNullValueInput | InputJsonValue
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string

@@ -539,9 +539,9 @@ export default function TableToolbar({
                     return (
                       <div
                         key={item.id}
-                        className={`flex items-center gap-2 rounded px-1 ${
-                          sortDragOverId === item.id ? "ring-1 ring-orange-300 bg-orange-50" : ""
-                        } ${draggingSortId === item.id ? "opacity-70" : ""}`}
+                        className={`flex items-center gap-2 rounded px-1 transition-all duration-150 ${
+                          sortDragOverId === item.id ? "ring-1 ring-orange-300 bg-orange-50 translate-y-[1px]" : ""
+                        } ${draggingSortId === item.id ? "opacity-70 cursor-grabbing" : ""}`}
                         onDragOver={(e) => {
                           if (!draggingSortId || draggingSortId === item.id || localSorts.items.length < 2) return;
                           e.preventDefault();
@@ -623,7 +623,9 @@ export default function TableToolbar({
                         </button>
                         {localSorts.items.length > 1 && (
                           <span
-                            className="cursor-grab p-1 text-gray-400 hover:text-gray-600"
+                            className={`p-1 text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing ${
+                              draggingSortId === item.id ? "cursor-grabbing" : ""
+                            }`}
                             draggable
                             onDragStart={(e) => {
                               e.dataTransfer.setData("text/plain", item.id);
@@ -721,9 +723,9 @@ export default function TableToolbar({
                   {localFilters.conditions.map((condition, idx) => (
                     <div
                       key={condition.id}
-                      className={`flex items-center gap-1 rounded px-1 ${
-                        filterDragOverId === condition.id ? "ring-1 ring-emerald-300 bg-emerald-50" : ""
-                      } ${draggingFilterId === condition.id ? "opacity-70" : ""}`}
+                      className={`flex items-center gap-1 rounded px-1 transition-all duration-150 ${
+                        filterDragOverId === condition.id ? "ring-1 ring-emerald-300 bg-emerald-50 translate-y-[1px]" : ""
+                      } ${draggingFilterId === condition.id ? "opacity-70 cursor-grabbing" : ""}`}
                       onDragOver={(e) => {
                         if (!draggingFilterId || draggingFilterId === condition.id || localFilters.conditions.length < 2) return;
                         e.preventDefault();
@@ -872,13 +874,15 @@ export default function TableToolbar({
                           <Trash2 className="h-4 w-4" />
                         </button>
                         {localFilters.conditions.length > 1 && (
-                          <span
-                            className="cursor-grab p-1 text-gray-400 hover:text-gray-600"
-                            draggable
-                            onDragStart={(e) => {
-                              e.dataTransfer.setData("text/plain", condition.id);
-                              e.dataTransfer.effectAllowed = "move";
-                              setDraggingFilterId(condition.id);
+                        <span
+                          className={`p-1 text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing ${
+                            draggingFilterId === condition.id ? "cursor-grabbing" : ""
+                          }`}
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData("text/plain", condition.id);
+                            e.dataTransfer.effectAllowed = "move";
+                            setDraggingFilterId(condition.id);
                             }}
                             onDragEnd={() => {
                               setDraggingFilterId(null);
