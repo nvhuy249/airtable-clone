@@ -11,11 +11,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "~/trpc/react";
 import {
-  FiSquare,
   FiMenu,
   FiMoreHorizontal,
   FiEdit2,
   FiTrash2,
+  FiGrid,
 } from "react-icons/fi";
 
 import type { Base } from "./components/BaseCard";
@@ -359,7 +359,7 @@ export default function PageClient({ user, bases }: PageClientProps) {
                     : "border-transparent bg-transparent text-[#6b7280] hover:bg-white/70 hover:border-[#e6e8eb]"
                 }`}
               >
-                <FiSquare className="h-4 w-4" />
+                <FiGrid className="h-4 w-4" />
               </button>
             </div>
           </div>

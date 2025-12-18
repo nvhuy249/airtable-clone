@@ -1,6 +1,6 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
-import { FiHelpCircle, FiMenu } from "react-icons/fi";
+import { FiHelpCircle, FiMenu, FiSearch } from "react-icons/fi";
 import { FiUser, FiSettings, FiLogOut } from "react-icons/fi";
 import { signOut } from "next-auth/react";
 import type { Session } from "next-auth";
@@ -57,9 +57,10 @@ export default function Topbar({ user, onToggleSidebar }: TopbarProps) {
 
       {/* center search */}
       <div className="flex-1 flex justify-center">
-        <div className="w-[380px]">
+        <div className="w-[380px] relative">
+          <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9ca3af]" size={16} />
           <input
-            className="w-full h-9 px-4 rounded-full border border-[#e6e8eb] text-[13px] text-[#1f2933] placeholder:text-[#9ca3af] focus:outline-none bg-white shadow-sm"
+            className="w-full h-9 pl-9 pr-4 rounded-full border border-[#e6e8eb] text-[13px] text-[#1f2933] placeholder:text-[#9ca3af] focus:outline-none bg-white shadow-sm"
             placeholder="Search...      ctrl + K"
           />
         </div>
