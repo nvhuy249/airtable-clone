@@ -1442,7 +1442,7 @@ function BaseClientContent({
 
           {/* LOADING BODY */}
           <div className="flex flex-1 items-center justify-center text-sm text-gray-500">
-            Preparing your base...
+            Loading base...
           </div>
         </div>
       </div>

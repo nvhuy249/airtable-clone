@@ -14,9 +14,10 @@ import {
   X,
   Trash2,
   GripVertical,
+  Table,
+  Share2,
 } from "lucide-react";
 import { GridViewIcon } from "./icons/GridViewIcon";
-import { Table, Share2 } from "lucide-react";
 
 type Field = { id: string; name: string; order: number; type?: "TEXT" | "NUMBER" };
 

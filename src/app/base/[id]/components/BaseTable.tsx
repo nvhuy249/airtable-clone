@@ -416,7 +416,7 @@ export default function BaseTable({
     const node = scrollContainerRef.current;
     if (!node) return;
     const distanceFromBottom = node.scrollHeight - (node.scrollTop + node.clientHeight);
-    if (distanceFromBottom <= VIRTUAL_ROW_HEIGHT * 50) {
+    if (distanceFromBottom <= VIRTUAL_ROW_HEIGHT * 60) {
       onLoadMore();
     }
 
@@ -1159,11 +1159,6 @@ export default function BaseTable({
   };
 
   const firstDataColumnId = visibleColumnOrder[0];
-  const secondDataColumnId = visibleColumnOrder[1];
-  const isFirstDataColumn = (columnId?: string) =>
-    Boolean(firstDataColumnId && columnId === firstDataColumnId);
-  const isSecondDataColumn = (columnId?: string) =>
-    Boolean(secondDataColumnId && columnId === secondDataColumnId);
   const stickyClass = (columnId: string, isHeader = false) => {
     if (columnId === "rowNumber") {
       return `${isHeader ? "sticky left-0 z-30" : "sticky left-0 z-10"} bg-inherit`;
@@ -1228,6 +1223,11 @@ export default function BaseTable({
         }}
       >
         <div className="pointer-events-none absolute top-0 bottom-0 left-[224px] w-px bg-[#e6e8ef] z-0" />
+        {isLoading && (
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
+            <div className="h-9 w-9 animate-spin rounded-full border-2 border-[#cfd4de] border-t-[#1b6ef3]" />
+          </div>
+        )}
         <table className="table-fixed border-separate border-spacing-0 text-[13px] w-max">
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (
@@ -1320,7 +1320,6 @@ export default function BaseTable({
               const absoluteIndex = row.original.__rowIndex ?? row.index;
               const rowHovered = hoveredRow === absoluteIndex;
               const recordId = row.original.__recordId;
-              const isSelected = selectedRows.has(recordId);
               const isActiveRow = activeCell?.rowIndex === absoluteIndex;
               return (
                 <tr
