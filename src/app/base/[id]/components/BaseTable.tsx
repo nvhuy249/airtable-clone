@@ -37,7 +37,7 @@ type ColumnValue = string | number | null | undefined;
 type RowData = Record<string, ColumnValue> & { __recordId: string; __rowIndex: number };
 
 const displayValue = (value: ColumnValue) => (value == null ? "" : String(value));
-const VIRTUAL_ROW_HEIGHT = 42;
+const VIRTUAL_ROW_HEIGHT = 32;
 const VIRTUAL_OVERSCAN = 8;
 
 const readCellValue = (field: FieldShape, cell?: CellShape | null): ColumnValue => {
@@ -795,10 +795,10 @@ export default function BaseTable({
 
           return (
             <div
-              className={`flex h-full min-h-[36px] items-stretch border border-transparent transition-colors ${
+              className={`flex h-full w-full min-h-[24px] items-stretch rounded-[3px] border border-transparent transition-colors ${
                 isActive
-                  ? "border-[#1e73ff] ring-2 ring-[#1e73ff]"
-                  : "focus-within:border-[#1e73ff] focus-within:ring-1 focus-within:ring-[#1e73ff]"
+                  ? "border-[#1e73ff] ring-2 ring-[#1e73ff] ring-offset-0"
+                  : "focus-within:border-[#1e73ff] focus-within:ring-1 focus-within:ring-[#1e73ff] focus-within:ring-offset-0"
               }`}
               data-cell-container="true"
               onClick={() => {
@@ -830,7 +830,7 @@ export default function BaseTable({
                 <input
                   ref={inputRef}
                   type={isNumberField ? "number" : "text"}
-                  className="w-full bg-transparent border-0 outline-none focus:outline-none focus:ring-0 px-[6px] py-[6px] text-sm leading-5 text-gray-900"
+                  className="w-full bg-transparent border-0 px-0 py-0 text-[13px] leading-[18px] text-gray-900 outline-none focus:outline-none focus:ring-0"
                   style={{ caretColor: isEditing ? 'auto' : 'transparent' }}
                   placeholder=" "
                   value={editValue}
@@ -950,7 +950,7 @@ export default function BaseTable({
           accessorKey: key,
           header: () => (
             <div
-              className="flex items-center gap-2"
+              className="flex items-center gap-1.5"
               data-rename-trigger="true"
               onDoubleClick={(e) => {
                 e.stopPropagation();
@@ -965,9 +965,9 @@ export default function BaseTable({
                 setRenamingValue(headerName);
               }}
             >
-              <span className="text-[11px] text-gray-400">{letter}</span>
+              <span className="text-[11px] text-[#98a2b3]">{letter}</span>
               {icon}
-              <span className="font-medium text-gray-700 truncate">{headerName}</span>
+              <span className="truncate font-medium text-[#111827]">{headerName}</span>
             </div>
           ),
           cell: makeEditableCell(key),
@@ -982,13 +982,14 @@ export default function BaseTable({
         const recordId = row.original.__recordId;
         const absoluteIndex = row.original.__rowIndex ?? row.index;
         const isSelected = selectedRowsRef.current.has(recordId);
-        const showCheckbox = hoveredRowRef.current === absoluteIndex || isSelected;
+        const isActiveRow = activeCellRef.current?.rowIndex === absoluteIndex;
+        const showCheckbox = hoveredRowRef.current === absoluteIndex || isSelected || isActiveRow;
         return (
-          <div className="flex items-center justify-center text-xs text-gray-500">
+          <div className="flex items-center justify-center text-[12px] text-[#667085]">
             {showCheckbox ? (
               <input
                 type="checkbox"
-                className="rounded border-gray-300 accent-blue-600 cursor-pointer"
+                className="rounded border-[#d9dde8] accent-[#2f6fed] cursor-pointer"
                 checked={isSelected}
                 onChange={(e) => {
                   setSelectedRows((prev) => {
@@ -1015,13 +1016,13 @@ export default function BaseTable({
           </div>
         );
       },
-      size: 60,
+      size: 54,
     };
 
     const addFieldCol: ColumnDef<RowData, ColumnValue> = {
       id: "addField",
       header: () => (
-        <div className="flex items-center justify-center">
+        <div className="flex h-8 items-center justify-center px-1.5">
           <button
             ref={addFieldButtonRef}
             onClick={() => {
@@ -1031,16 +1032,16 @@ export default function BaseTable({
               setPendingFieldName("");
               setAddFieldMenuOpen((p) => !p);
             }}
-            className="flex h-7 w-7 items-center justify-center rounded border border-gray-200 text-gray-500 hover:bg-gray-50"
+            className="flex h-6 w-10 items-center justify-center bg-white text-[#667085] hover:bg-[#f2f4f8]"
             aria-label="Add column"
             type="button"
           >
-            <FiPlus />
+            <FiPlus className="h-5 w-5" />
           </button>
         </div>
       ),
-      cell: () => <div className="h-4" />,
-      size: 60,
+      cell: () => null,
+      size: 44,
       enableSorting: false,
     };
 
@@ -1151,11 +1152,26 @@ export default function BaseTable({
   const widthClass = (columnId: string) => {
     const isRowNumber = columnId === "rowNumber";
     const isAddField = columnId === "addField";
-    return isRowNumber
-      ? "w-[60px] text-center"
-      : isAddField
-        ? "w-[60px] text-center"
-        : "w-[140px]";
+    if (isRowNumber || isAddField) return "w-[44px] min-w-[44px] text-center";
+    const field = fieldLookup[columnId];
+    const isNumber = field?.type?.toString().toUpperCase() === "NUMBER";
+    return isNumber ? "w-[120px] min-w-[120px]" : "w-[180px] min-w-[180px]";
+  };
+
+  const firstDataColumnId = visibleColumnOrder[0];
+  const secondDataColumnId = visibleColumnOrder[1];
+  const isFirstDataColumn = (columnId?: string) =>
+    Boolean(firstDataColumnId && columnId === firstDataColumnId);
+  const isSecondDataColumn = (columnId?: string) =>
+    Boolean(secondDataColumnId && columnId === secondDataColumnId);
+  const stickyClass = (columnId: string, isHeader = false) => {
+    if (columnId === "rowNumber") {
+      return `${isHeader ? "sticky left-0 z-30" : "sticky left-0 z-10"} bg-inherit`;
+    }
+    if (firstDataColumnId && columnId === firstDataColumnId) {
+      return `${isHeader ? "sticky left-[44px] z-20" : "sticky left-[44px] z-[5]"} bg-inherit`;
+    }
+    return "";
   };
 
   const closeHeaderMenu = () => setHeaderMenu(null);
@@ -1202,7 +1218,7 @@ export default function BaseTable({
     <div className="flex flex-col h-full w-full overflow-hidden" ref={tableWrapperRef}>
       {/* ACTUAL TABLE */}
       <div
-        className="flex-1 overflow-auto bg-white border-t border-gray-300"
+        className="relative flex-1 overflow-auto bg-[#f6f7fb]"
         ref={scrollContainerRef}
         onScroll={(e) => {
           const scrollTop = e.currentTarget.scrollTop;
@@ -1211,13 +1227,14 @@ export default function BaseTable({
           maybeLoadMore();
         }}
       >
-        <table className="table-auto border-separate border-spacing-0 text-sm">
+        <div className="pointer-events-none absolute top-0 bottom-0 left-[224px] w-px bg-[#e6e8ef] z-0" />
+        <table className="table-fixed border-separate border-spacing-0 text-[13px] w-max">
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id} className="bg-white">
+              <tr key={headerGroup.id} className="bg-white hover:bg-[#f8fafc]">
                 {headerGroup.headers.map((header) => {
                   const headerHover =
-                    hoveredHeader === header.id ? "bg-[#eef0f5]" : "";
+                    hoveredHeader === header.id ? "bg-[#eef2f7]" : "";
                   const isFieldHeader = columnOrder.includes(header.id);
                   const isFilterColumn = isFieldHeader && filteredFieldIdSet.has(header.id);
                   const isSortColumn = isFieldHeader && sortedFieldIdSet.has(header.id);
@@ -1232,14 +1249,14 @@ export default function BaseTable({
                   return (
                     <th
                       key={header.id}
-                      className={`relative border-b border-r border-gray-200 text-left text-xs font-medium text-gray-600 ${widthClass(header.id)} ${headerHover} ${headerHighlight}`}
+                      className={`relative h-8 border-b ${header.id === "rowNumber" ? "" : "border-r"} border-[#e6e8ef] text-left text-[12px] font-medium text-[#475467] ${widthClass(header.id)} ${stickyClass(header.id, true)} bg-white hover:bg-[#f8fafc] ${headerHover} ${headerHighlight}`}
                       onMouseEnter={() => setHoveredHeader(header.id)}
                       onMouseLeave={() => {
                         setHoveredHeader(null);
                         if (headerMenu !== header.id) return;
                       }}
                     >
-                      <div className="flex items-center justify-between px-3 py-[6px] text-sm hover:bg-[#eef0f5]">
+                      <div className="flex h-8 items-center justify-between px-2">
                         <div className="flex-1">
                           {header.isPlaceholder
                             ? null
@@ -1266,7 +1283,7 @@ export default function BaseTable({
                       </div>
                       {headerMenu === header.id && (
                         <div
-                          className="absolute z-30 mt-1 w-56 rounded-lg border border-gray-200 bg-white shadow-xl text-gray-700"
+                          className="absolute z-30 mt-1 w-56 rounded-lg border border-[#e6e8ef] bg-white shadow-xl text-gray-700"
                           onMouseLeave={closeHeaderMenu}
                         >
                           <div className="py-2 text-sm">
@@ -1304,10 +1321,11 @@ export default function BaseTable({
               const rowHovered = hoveredRow === absoluteIndex;
               const recordId = row.original.__recordId;
               const isSelected = selectedRows.has(recordId);
+              const isActiveRow = activeCell?.rowIndex === absoluteIndex;
               return (
                 <tr
                   key={row.id}
-                  className={`${rowHovered ? "bg-[#f1f3f7]" : "bg-white"} ${isSelected ? "border border-blue-50" : ""}`}
+                  className={rowHovered || isActiveRow ? "bg-[#f8fafc]" : "bg-white"}
                   onMouseEnter={() => setHoveredRow(absoluteIndex)}
                   onMouseLeave={() => setHoveredRow(null)}
                   onContextMenu={(e) => {
@@ -1329,22 +1347,32 @@ export default function BaseTable({
                     const isHighlighted = highlightedCellKeys.has(cellKey);
                     const highlightClass = isHighlighted
                       ? "bg-amber-200 hover:bg-amber-200"
-                      : isFilterColumn
-                        ? "bg-emerald-50 hover:bg-emerald-100"
-                        : isSortColumn
-                          ? "bg-orange-50 hover:bg-orange-100"
-                          : "hover:bg-[#f5f6fa]";
+                          : isFilterColumn
+                            ? "bg-emerald-50 hover:bg-emerald-100"
+                            : isSortColumn
+                              ? "bg-orange-50 hover:bg-orange-100"
+                              : isActiveRow
+                                ? "bg-[#f8fafc]"
+                                : "hover:bg-[#f8fafc]";
                     return (
                       <td
                         key={cell.id}
-                        className={`border-b border-r border-gray-200 align-middle ${widthClass(cell.column.id)}`}
+                        className={
+                          cell.column.id === "addField"
+                            ? "w-[1px] min-w-[1px] p-0 border-0"
+                            : `border-b ${cell.column.id === "rowNumber" ? "" : "border-r"} border-[#e6e8ef] align-middle ${widthClass(cell.column.id)} ${stickyClass(cell.column.id)}`
+                        }
                       >
-                        <div className={`px-1 py-[2px] text-sm ${highlightClass}`}>
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext(),
-                          )}
-                        </div>
+                        {cell.column.id === "addField" ? null : (
+                          <div className={`h-full ${highlightClass}`}>
+                            <div className="px-2 py-1 text-[13px]">
+                              {flexRender(
+                                cell.column.columnDef.cell,
+                                cell.getContext(),
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </td>
                     );
                   })}
@@ -1352,7 +1380,7 @@ export default function BaseTable({
               );
             })}
             <tr>
-              <td colSpan={table.getVisibleLeafColumns().length} className="p-0 border-0">
+              <td colSpan={table.getVisibleLeafColumns().length} className="p-0 border-0 bg-[#f6f7fb]">
                 <div
                   className="relative w-full"
                   style={{ height: Math.max(bottomSpacerHeight, hasMore || isFetchingMore ? 24 : 0) }}
@@ -1368,45 +1396,47 @@ export default function BaseTable({
                 </div>
               </td>
             </tr>
-            <tr className="bg-white">
+            <tr className="bg-[#f6f7fb]">
               {table.getVisibleLeafColumns().map((column) => (
                 <td
                   key={`add-row-${column.id}`}
-                  className={`border-b border-r border-gray-200 align-middle ${widthClass(column.id)}`}
+                  className={
+                    column.id === "addField"
+                      ? "w-[1px] min-w-[1px] p-0 border-0"
+                      : `border-b ${column.id === "rowNumber" ? "" : "border-r"} border-[#e6e8ef] align-middle ${widthClass(column.id)} ${stickyClass(column.id)}`
+                  }
                 >
-         <div className="px-3 py-[10px] text-sm">
-            {column.id === "rowNumber" ? (
-              <button
-                onClick={addRow}
-                className="flex h-6 w-6 items-center justify-center rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
-                aria-label="Add row"
-                type="button"
-                data-add-field-name="false"
-                data-add-field-menu="false"
-              >
-                <FiPlus />
-              </button>
-            ) : null}
-         </div>
-       </td>
-     ))}
-   </tr>
+                  {column.id === "rowNumber" ? (
+                    <div className="flex h-8 items-center justify-center text-[13px]">
+                      <button
+                        onClick={addRow}
+                        className="flex h-7 w-7 items-center justify-center rounded border border-[#e6e8ef] bg-white text-[#667085] hover:bg-[#f2f4f8]"
+                        aria-label="Add row"
+                        type="button"
+                        data-add-field-name="false"
+                        data-add-field-menu="false"
+                      >
+                        <FiPlus className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : column.id === "addField" ? null : null}
+                </td>
+              ))}
+            </tr>
           </tbody>
         </table>
       </div>
 
-      <div className="shrink-0 sticky bottom-0 left-0 right-0 z-20 
-        flex items-center justify-between
-        px-5 py-3 text-xs border-t border-gray-300 bg-white text-gray-600">
-        <div>
-          {statusText}
-        </div>
+      <div
+        className="sticky bottom-0 left-0 right-0 z-20 flex h-9 items-center justify-between border-t border-[#e6e8ef] bg-white px-4 text-[12px] text-[#667085]"
+      >
+        <div>{statusText}</div>
       </div>
 
       {addFieldMenuOpen && addFieldAnchor && (
         <div
           data-add-field-menu="true"
-          className="fixed z-40 w-40 rounded-lg border border-gray-200 bg-white shadow-lg text-sm text-gray-800"
+          className="fixed z-40 w-40 rounded-lg border border-[#e6e8ef] bg-white shadow-lg text-sm text-gray-800"
           style={{ top: addFieldAnchor.top, left: addFieldAnchor.left }}
         >
           <div className="px-3 py-2 border-b text-gray-700 font-medium">New field type</div>
@@ -1446,7 +1476,7 @@ export default function BaseTable({
       {pendingFieldType && addFieldAnchor && (
         <div
           data-add-field-name="true"
-              className="fixed z-50 w-60 rounded-lg border border-gray-200 bg-white shadow-lg text-sm text-gray-800"
+              className="fixed z-50 w-60 rounded-lg border border-[#e6e8ef] bg-white shadow-lg text-sm text-gray-800"
           style={{ top: addFieldAnchor.top, left: addFieldAnchor.left }}
         >
           <div className="px-3 py-2 border-b text-gray-700 font-medium">
@@ -1460,14 +1490,14 @@ export default function BaseTable({
                 type="text"
                 value={pendingFieldName}
                 onChange={(e) => setPendingFieldName(e.target.value)}
-                className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-gray-800"
+                className="mt-1 w-full rounded border border-[#d9dde8] px-2 py-1 text-gray-800 focus:border-[#2557e0] focus:outline-none focus:ring-2 focus:ring-[#2557e0]/20"
                 placeholder={`Field ${localFields.length + 1}`}
               />
             </label>
             <div className="flex items-center justify-end gap-2 pt-1">
               <button
                 type="button"
-                className="px-3 py-1 rounded border border-gray-200 text-gray-700 hover:bg-gray-50"
+                className="px-3 py-1 rounded border border-[#d9dde8] text-gray-700 hover:bg-gray-50"
                 onClick={() => {
                   setPendingFieldType(null);
                   setPendingFieldName("");
@@ -1497,7 +1527,7 @@ export default function BaseTable({
       {renamingFieldId && renameAnchor && (
         <div
           data-rename-field="true"
-          className="fixed z-50 w-72 rounded-lg border border-gray-200 bg-white shadow-lg text-sm text-gray-800"
+          className="fixed z-50 w-72 rounded-lg border border-[#e6e8ef] bg-white shadow-lg text-sm text-gray-800"
           style={{ top: renameAnchor.top, left: renameAnchor.left }}
         >
           <div className="px-3 py-2 border-b text-gray-700 font-medium">Rename field</div>
@@ -1519,13 +1549,13 @@ export default function BaseTable({
                 }
               }}
               onBlur={() => commitRename(renamingFieldId, renamingValue)}
-              className="w-full rounded border border-gray-300 px-2 py-2 text-gray-800"
+              className="w-full rounded border border-[#d9dde8] px-2 py-2 text-gray-800 focus:border-[#2557e0] focus:outline-none focus:ring-2 focus:ring-[#2557e0]/20"
               placeholder="Field name"
             />
             <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
-                className="px-3 py-1 rounded border border-gray-200 text-gray-700 hover:bg-gray-50"
+                className="px-3 py-1 rounded border border-[#d9dde8] text-gray-700 hover:bg-gray-50"
                 onClick={() => {
                   setRenamingFieldId(null);
                   setRenamingValue("");
@@ -1549,7 +1579,7 @@ export default function BaseTable({
       {contextMenu && (
         <div
           ref={menuRef}
-          className="fixed z-50 w-72 max-h-[80vh] overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg text-sm text-gray-800"
+          className="fixed z-50 w-72 max-h-[80vh] overflow-auto rounded-lg border border-[#e6e8ef] bg-white shadow-lg text-sm text-gray-800"
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={(e) => e.stopPropagation()}
         >
