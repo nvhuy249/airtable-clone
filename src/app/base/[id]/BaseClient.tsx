@@ -646,8 +646,6 @@ function BaseClientContent({
   const fetchNextPage = recordsQuery.fetchNextPage;
   const [seedRemaining, setSeedRemaining] = useState<number>(0);
 
-  const [seedRefetchedOnce, setSeedRefetchedOnce] = useState(false);
-
   const seedRecords = api.table.seedRecords.useMutation({
     onSuccess: (result) => {
       const inserted = result?.inserted ?? 0;
@@ -657,26 +655,17 @@ function BaseClientContent({
         return nextRemaining;
       });
 
-      // Refresh once early so pagination picks up new nextCursor when we just created a lot of rows.
-      if (!seedRefetchedOnce && nextRemaining > 0) {
-        if (recordsQueryInput) {
-          void utils.table.records.invalidate(recordsQueryInput);
-        } else {
-          void utils.table.records.invalidate();
-        }
-        setSeedRefetchedOnce(true);
+      // Refresh after each chunk so newly inserted rows appear incrementally.
+      if (recordsQueryInput) {
+        void utils.table.records.invalidate(recordsQueryInput);
+      } else {
+        void utils.table.records.invalidate();
       }
 
       if (nextRemaining === 0) {
-        if (recordsQueryInput) {
-          void utils.table.records.invalidate(recordsQueryInput);
-        } else {
-          void utils.table.records.invalidate();
-        }
         if (activeTableId) {
           void utils.table.byId.invalidate({ id: activeTableId });
         }
-        setSeedRefetchedOnce(false);
       }
     },
   });
@@ -1540,10 +1529,11 @@ function BaseClientContent({
               if (!activeTableId || seedRecords.isPending) return;
               const target = count || 100_000;
               setSeedRemaining(target);
+              const firstChunk = Math.min(target, 1_000);
               seedRecords.mutate({
                 tableId: activeTableId,
-                count: target,
-                chunkSize: 5_000,
+                count: firstChunk,
+                chunkSize: 1_000,
               });
             }}
 
