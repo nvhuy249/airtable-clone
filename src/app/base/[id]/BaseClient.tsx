@@ -131,6 +131,7 @@ function BaseClientContent({
   const lastLocalCellValueRef = useRef<Map<string, string | number | null>>(new Map());
   const optimisticRecordIdMapRef = useRef<Map<string, string>>(new Map());
   const optimisticFieldIdMapRef = useRef<Map<string, string>>(new Map());
+  const initialPrefetchingRef = useRef(false);
   const shouldRefetchRecordsRef = useRef(true);
   const lastSearchByViewRef = useRef<Record<string, string>>({});
   const lastFiltersByViewRef = useRef<Record<string, string>>({});
@@ -286,6 +287,7 @@ function BaseClientContent({
   const [appliedSorts, setAppliedSorts] = useState<SortItem[]>([]);
   const [globalSearch, setGlobalSearch] = useState("");
   const RECORD_PAGE_SIZE = 100;
+  const INITIAL_EAGER_RECORD_TARGET = 1_000;
   const filterDebounceHandleRef = useRef<number | null>(null);
 
   const buildViewConfig = useCallback(
@@ -645,6 +647,28 @@ function BaseClientContent({
   const isRecordsLoading = recordsQuery.isLoading || recordsQuery.isFetchingNextPage;
   const fetchNextPage = recordsQuery.fetchNextPage;
   const [seedRemaining, setSeedRemaining] = useState<number>(0);
+
+  // Eagerly pull enough pages to show ~1k rows up front, then let normal scrolling pick up the rest.
+  useEffect(() => {
+    if (initialPrefetchingRef.current) return;
+    if (records.length >= INITIAL_EAGER_RECORD_TARGET) return;
+    if (!hasMore || isFetchingMore) return;
+    if (!recordsQuery.data?.pages?.length) return;
+
+    initialPrefetchingRef.current = true;
+    fetchNextPage()
+      .catch(() => undefined)
+      .finally(() => {
+        initialPrefetchingRef.current = false;
+      });
+  }, [
+    fetchNextPage,
+    hasMore,
+    INITIAL_EAGER_RECORD_TARGET,
+    isFetchingMore,
+    records.length,
+    recordsQuery.data?.pages?.length,
+  ]);
 
   const seedRecords = api.table.seedRecords.useMutation({
     onSuccess: (result) => {

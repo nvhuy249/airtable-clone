@@ -416,7 +416,7 @@ export default function BaseTable({
     const node = scrollContainerRef.current;
     if (!node) return;
     const distanceFromBottom = node.scrollHeight - (node.scrollTop + node.clientHeight);
-    if (distanceFromBottom <= VIRTUAL_ROW_HEIGHT * 60) {
+    if (distanceFromBottom <= VIRTUAL_ROW_HEIGHT * 70) {
       onLoadMore();
     }
 
