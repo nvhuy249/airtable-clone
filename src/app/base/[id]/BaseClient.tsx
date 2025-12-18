@@ -644,7 +644,7 @@ function BaseClientContent({
   const totalCount = Math.max(0, (totalCountBase ?? 0) + totalDelta);
   const hasMore = Boolean(recordsQuery.hasNextPage);
   const isFetchingMore = recordsQuery.isFetchingNextPage;
-  const isRecordsLoading = recordsQuery.isLoading || recordsQuery.isFetchingNextPage;
+  const isRecordsLoading = recordsQuery.isLoading;
   const fetchNextPage = recordsQuery.fetchNextPage;
   const [seedRemaining, setSeedRemaining] = useState<number>(0);
 
