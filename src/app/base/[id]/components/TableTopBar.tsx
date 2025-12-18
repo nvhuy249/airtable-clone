@@ -17,6 +17,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { FiPlus } from "react-icons/fi";
 
 interface TableTopBarProps {
   tables: { id: string; name: string }[];
@@ -105,9 +106,9 @@ export default function TableTopBar({
 
   return (
     <>
-      <div className="relative flex h-8 items-center justify-between border-b border-gray-200 bg-[#f7f7fa] text-sm">
-        <div className="h-full flex items-center gap-1">
-          <div ref={menuWrapperRef} className="h-full relative flex items-center">
+      <div className="relative flex h-8 items-center justify-between border-[#e6e8ef] bg-[#f6f7fb] text-[13px]">
+        <div className="h-full flex items-center gap-0">
+          <div ref={menuWrapperRef} className="h-full relative flex items-center gap-0">
             {tables.map((t) => {
               const isActive = t.id === activeTableId;
               return (
@@ -119,10 +120,10 @@ export default function TableTopBar({
                       activeTabRef.current = node;
                     }
                   }}
-                  className={`h-full group flex items-center gap-1 rounded-md border px-3 py-1.5 text-sm transition ${
+                  className={`group relative flex h-8 items-center gap-1.5 rounded-t-[3px] border-t border-l border-r px-3 text-[13px] transition ${
                     isActive
-                      ? "border-gray-300 bg-white font-medium"
-                      : "border-transparent bg-transparent hover:border-gray-300 hover:bg-white"
+                      ? "border-[#d9dde8] bg-white text-[#111827] font-medium shadow-[0_1px_0_rgba(0,0,0,0.02)]"
+                      : "border-transparent bg-transparent text-[#475467] hover:bg-white/60"
                   }`}
                 >
                   <span className="max-w-[120px] truncate">{t.name}</span>
@@ -132,7 +133,8 @@ export default function TableTopBar({
                         e.stopPropagation();
                         setMenuOpen((p) => !p);
                       }}
-                      className="ml-0.5 h-4 w-4 text-gray-600"
+                      className="ml-0.5 h-3.5 w-3.5 text-[#667085]"
+                      strokeWidth={1.75}
                     />
                   )}
                 </button>
@@ -140,7 +142,7 @@ export default function TableTopBar({
             })}
 
             {menuOpen && (
-              <div className="absolute left-0 top-11 z-40 w-72 rounded-lg border border-gray-200 bg-white text-sm text-gray-800 shadow-2xl">
+              <div className="absolute left-0 top-11 z-40 w-72 rounded-lg border border-[#e6e8ef] bg-white text-[13px] text-gray-800 shadow-2xl">
                 <div className="py-2">
                   {menuItems.map(({ label, icon: Icon, danger }) => (
                     <button
@@ -161,7 +163,7 @@ export default function TableTopBar({
                         danger ? "text-red-600" : ""
                       }`}
                     >
-                      <Icon className="h-4 w-4" />
+                      <Icon className="h-4 w-4 text-[#667085]" strokeWidth={1.75} />
                       <span>{label}</span>
                     </button>
                   ))}
@@ -170,34 +172,34 @@ export default function TableTopBar({
             )}
           </div>
 
-          <div className="h-5 w-px bg-gray-200" />
+          <div className="h-5 w-px bg-[#e6e8ef]" />
 
-          <div ref={addMenuWrapperRef} className="relative flex items-center gap-1">
+          <div ref={addMenuWrapperRef} className="relative flex items-center gap-1.5">
             <button
               onClick={() => setAddMenuOpen((p) => !p)}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-gray-700 hover:bg-gray-50"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-[#475467] hover:bg-white/60"
               aria-label="Add table"
             >
-              <Plus className="h-4 w-4" />
+              <ChevronDown className="h-4 w-4" strokeWidth={1.75} />
             </button>
             <button
-              className="flex items-center gap-1 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+              className="flex items-center gap-1 px-2 py-1.5 text-[13px] text-[#475467] hover:bg-white/60 rounded-md"
               aria-label="Add or import"
             >
+              <FiPlus className="h-3.5 w-3.5 text-[#667085]" strokeWidth={1.75} />
               <span>Add or import</span>
-              <ChevronDown className="h-4 w-4 text-gray-600" />
             </button>
 
             {addMenuOpen && (
-              <div className="absolute left-0 top-11 z-40 w-56 rounded-lg border border-gray-200 bg-white text-sm text-gray-800 shadow-2xl">
+              <div className="absolute left-0 top-11 z-40 w-56 rounded-lg border border-[#e6e8ef] bg-white text-[13px] text-gray-800 shadow-2xl">
                 <button
-                  onClick={() => {
-                    onAddTable();
-                    setAddMenuOpen(false);
-                  }}
-                  className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-gray-50"
-                >
-                  <Plus className="h-4 w-4" />
+                onClick={() => {
+                  onAddTable();
+                  setAddMenuOpen(false);
+                }}
+                className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-gray-50"
+              >
+                  <Plus className="h-4 w-4 text-[#667085]" strokeWidth={1.75} />
                   <span>Add table</span>
                 </button>
               </div>
@@ -209,13 +211,13 @@ export default function TableTopBar({
       {renameOpen && (
         <div
           ref={renameWrapperRef}
-          className="fixed z-50 w-[340px] rounded-lg border border-gray-200 bg-white shadow-2xl"
+          className="fixed z-50 w-[340px] rounded-lg border border-[#e6e8ef] bg-white shadow-2xl"
           style={{
             top: renamePosition?.top ?? 52,
             left: renamePosition?.left ?? 16,
           }}
         >
-          <div className="border-b border-gray-200 px-4 py-3 text-sm font-medium">
+          <div className="border-b border-[#e6e8ef] px-4 py-3 text-sm font-medium">
             Rename table
           </div>
           <form
@@ -233,7 +235,7 @@ export default function TableTopBar({
                 autoFocus
                 value={renameValue}
                 onChange={(e) => setRenameValue(e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-[#2557e0] focus:outline-none focus:ring-2 focus:ring-[#2557e0]/30"
+                className="w-full rounded-md border border-[#d9dde8] px-3 py-2 text-sm focus:border-[#2557e0] focus:outline-none focus:ring-2 focus:ring-[#2557e0]/30"
               />
             </div>
 
@@ -242,7 +244,7 @@ export default function TableTopBar({
                 <span>What should each record be called?</span>
                 <HelpCircle className="ml-1 h-4 w-4 text-gray-400" />
               </div>
-              <div className="flex items-center justify-between rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+              <div className="flex items-center justify-between rounded-md border border-[#d9dde8] bg-gray-50 px-3 py-2 text-sm text-gray-600">
                 <span>Record</span>
                 <ChevronDown className="h-4 w-4 text-gray-500" />
               </div>

@@ -1359,7 +1359,7 @@ export default function BaseTable({
                         key={cell.id}
                         className={
                           cell.column.id === "addField"
-                            ? "w-[1px] min-w-[1px] p-0 border-0"
+                            ? `${widthClass(cell.column.id)} ${stickyClass(cell.column.id)} bg-[#f6f7fb] p-0 border-0`
                             : `border-b ${cell.column.id === "rowNumber" ? "" : "border-r"} border-[#e6e8ef] align-middle ${widthClass(cell.column.id)} ${stickyClass(cell.column.id)}`
                         }
                       >
@@ -1396,13 +1396,13 @@ export default function BaseTable({
                 </div>
               </td>
             </tr>
-            <tr className="bg-[#f6f7fb]">
+            <tr className="bg-white">
               {table.getVisibleLeafColumns().map((column) => (
                 <td
                   key={`add-row-${column.id}`}
                   className={
                     column.id === "addField"
-                      ? "w-[1px] min-w-[1px] p-0 border-0"
+                      ? `${widthClass(column.id)} ${stickyClass(column.id)} bg-[#f6f7fb] p-0 border-0`
                       : `border-b ${column.id === "rowNumber" ? "" : "border-r"} border-[#e6e8ef] align-middle ${widthClass(column.id)} ${stickyClass(column.id)}`
                   }
                 >
@@ -1410,7 +1410,7 @@ export default function BaseTable({
                     <div className="flex h-8 items-center justify-center text-[13px]">
                       <button
                         onClick={addRow}
-                        className="flex h-7 w-7 items-center justify-center rounded border border-[#e6e8ef] bg-white text-[#667085] hover:bg-[#f2f4f8]"
+                        className="flex h-7 w-7 items-center justify-center bg-white text-[#667085] hover:bg-[#f2f4f8]"
                         aria-label="Add row"
                         type="button"
                         data-add-field-name="false"

@@ -6,18 +6,17 @@ import {
   ChevronDown,
   EyeOff,
   Filter,
-  LayoutGrid,
   Menu,
   Palette,
   Plus,
   Search,
-  Share2,
-  Table,
   Eye,
   X,
   Trash2,
   GripVertical,
 } from "lucide-react";
+import { GridViewIcon } from "./icons/GridViewIcon";
+import { Table, Share2 } from "lucide-react";
 
 type Field = { id: string; name: string; order: number; type?: "TEXT" | "NUMBER" };
 
@@ -134,6 +133,8 @@ export default function TableToolbar({
   const filterTriggerRef = useRef<HTMLButtonElement | null>(null);
   const sortRef = useRef<HTMLDivElement | null>(null);
   const sortTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const searchRef = useRef<HTMLDivElement | null>(null);
+  const searchTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const orderedFields = useMemo(
     () => [...fields].sort((a, b) => a.order - b.order),
@@ -166,10 +167,17 @@ export default function TableToolbar({
       ) {
         return;
       }
+      if (
+        searchRef.current?.contains(e.target as Node) ||
+        searchTriggerRef.current?.contains(e.target as Node)
+      ) {
+        return;
+      }
       setOpen(false);
       setViewActionsOpen(false);
       setFilterOpen(false);
       setSortOpen(false);
+      setSearchOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -248,34 +256,36 @@ export default function TableToolbar({
     ];
   };
 
+  const [searchOpen, setSearchOpen] = useState(false);
+
   return (
-    <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2 text-[13px]">
+    <div className="flex h-10 items-center justify-between border-b border-[#e6e8ef] bg-white px-3 text-[13px] text-[#344054]">
       {/* left: Grid view pill + actions */}
       <div className="flex items-center gap-2">
         <button
           type="button"
-          className="inline-flex h-8 w-8 items-center justify-center rounded text-gray-600 hover:text-gray-900 transition-colors"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#667085] hover:text-[#344054] hover:bg-[#f2f4f8] transition-colors"
           onClick={onToggleViewSidebar}
           onMouseEnter={() => onViewSidebarHoverChange(true)}
           onMouseLeave={() => onViewSidebarHoverChange(false)}
           aria-pressed={viewSidebarPinned}
           aria-label="Toggle view sidebar"
         >
-          <Menu className="h-4 w-4" />
+          <Menu className="h-4 w-4" strokeWidth={1.75} />
           <span className="sr-only">Toggle views</span>
         </button>
         <div className="relative inline-block">
           <button
             ref={viewActionsTriggerRef}
             type="button"
-            className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-gray-800 hover:bg-gray-50"
-            onClick={() => setViewActionsOpen((p) => !p)}
+            className="inline-flex h-8 items-center gap-1 rounded-md bg-white px-2 text-[#111827] hover:bg-[#f2f4f8]"
+          onClick={() => setViewActionsOpen((p) => !p)}
           onDoubleClick={() => {
             if (!activeViewId) return;
             startEditing(activeViewId, viewName ?? "Grid view");
           }}
         >
-          <LayoutGrid className="h-3.5 w-3.5 text-[#2557e0]" />
+          <GridViewIcon className="h-3.5 w-3.5 text-[#1b6ef3]" />
             {editingViewId === activeViewId ? (
               <input
                 autoFocus
@@ -291,24 +301,24 @@ export default function TableToolbar({
                     setEditingName("");
                   }
                 }}
-                className="w-32 rounded border border-gray-300 px-2 py-0.5 text-[13px] focus:outline-none"
+                className="w-32 rounded-[3px] px-2 py-0.5 text-[13px] focus:outline-none focus:ring-1 focus:ring-grey-300"
               />
             ) : (
               <span>{viewName ?? "Grid view"}</span>
             )}
-            <ChevronDown className="h-3 w-3 text-gray-500" />
+            <ChevronDown className="h-3 w-3 text-[#667085]" strokeWidth={1.75} />
           </button>
           {viewActionsOpen && (
             <div
               ref={viewActionsRef}
-              className="absolute left-0 top-full z-40 mt-2 w-56 rounded-lg border border-gray-200 bg-white shadow-xl"
+              className="absolute left-0 top-full z-40 mt-2 w-56 rounded-lg border border-[#e6e8ef] bg-white shadow-xl"
             >
-              <div className="px-3 py-2 text-[13px] text-gray-800 font-medium border-b">
+              <div className="px-3 py-2 text-[13px] text-gray-800 font-medium border-b border-[#e6e8ef]">
                 {viewName ?? "Current view"}
               </div>
               <button
                 type="button"
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-gray-50 text-gray-800"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-gray-800 hover:bg-gray-50"
                 onClick={() => {
                   if (activeViewId && viewName) {
                     startEditing(activeViewId, viewName);
@@ -316,29 +326,29 @@ export default function TableToolbar({
                   setViewActionsOpen(false);
                 }}
               >
-                <LayoutGrid className="h-3.5 w-3.5" />
+                <GridViewIcon className="h-3.5 w-3.5 text-[#1b6ef3]" />
                 <span>Rename view</span>
               </button>
               <button
                 type="button"
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-gray-50 text-gray-800"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-gray-800 hover:bg-gray-50"
                 onClick={() => {
                   if (activeViewId) onDuplicateViewAction?.(activeViewId);
                   setViewActionsOpen(false);
                 }}
               >
-                <Plus className="h-3.5 w-3.5" />
+                <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
                 <span>Duplicate view</span>
               </button>
               <button
                 type="button"
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-red-50 text-red-600"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-red-600 hover:bg-red-50"
                 onClick={() => {
                   if (activeViewId) onDeleteViewAction?.(activeViewId);
                   setViewActionsOpen(false);
                 }}
               >
-                <Trash2 className="h-3.5 w-3.5" />
+                <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
                 <span>Delete view</span>
               </button>
             </div>
@@ -347,10 +357,10 @@ export default function TableToolbar({
       </div>
 
       {/* right: tools */}
-      <div className="relative flex items-center gap-4 text-[13px] text-gray-600">
+      <div className="relative flex items-center gap-1 text-[13px] text-[#667085]">
         <button
           type="button"
-          className="inline-flex items-center gap-1 hover:text-gray-900 font-semibold"
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[#111827] hover:bg-[#f2f4f8]"
           disabled={isSeedingRows}
           onClick={() => onSeedRows?.(100_000)}
         >
@@ -359,25 +369,24 @@ export default function TableToolbar({
         <button
           ref={triggerRef}
           type="button"
-          className="inline-flex items-center gap-1 hover:text-gray-900"
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 hover:bg-[#f2f4f8]"
           onClick={() => setOpen((p) => !p)}
         >
-          <EyeOff className="h-3.5 w-3.5" />
+          <EyeOff className="h-4 w-4" strokeWidth={1.75} />
           <span>Hide fields</span>
-          <ChevronDown className="h-3 w-3 text-gray-500" />
         </button>
 
         <button
           ref={filterTriggerRef}
           type="button"
-          className={`inline-flex items-center gap-1 hover:text-gray-900 ${
+          className={`inline-flex items-center gap-1 rounded-md px-2 py-1 hover:bg-[#f2f4f8] ${
             localFilters.conditions.length
-              ? "text-emerald-700 border border-emerald-200 bg-emerald-50 px-2 py-1 rounded"
+              ? "text-emerald-700 border border-emerald-200 bg-emerald-50"
               : ""
           }`}
           onClick={() => setFilterOpen((p) => !p)}
         >
-          <Filter className="h-3.5 w-3.5" />
+          <Filter className="h-4 w-4 text-[#667085] hover:text-[#344054]" strokeWidth={1.75} />
           <span>
             {localFilters.conditions.length
               ? (() => {
@@ -388,49 +397,78 @@ export default function TableToolbar({
                 })()
               : "Filter"}
           </span>
-          <ChevronDown className="h-3 w-3 text-gray-500" />
         </button>
 
         <button
           ref={sortTriggerRef}
           type="button"
-          className={`inline-flex items-center gap-1 hover:text-gray-900 ${localSorts.items.length ? "text-orange-600 border border-orange-200 bg-orange-50 px-2 py-1 rounded" : ""}`}
+          className={`inline-flex items-center gap-1 rounded-md px-2 py-1 hover:bg-[#f2f4f8] ${localSorts.items.length ? "text-orange-600 border border-orange-200 bg-orange-50" : ""}`}
           onClick={() => setSortOpen((p) => !p)}
         >
-          <ArrowUpDown className="h-3.5 w-3.5" />
+          <ArrowUpDown className="h-4 w-4" strokeWidth={1.75} />
           <span>{localSorts.items.length ? `Sorted by ${localSorts.items.length} field${localSorts.items.length > 1 ? "s" : ""}` : "Sort"}</span>
-          <ChevronDown className="h-3 w-3 text-gray-500" />
         </button>
 
         {toolbarItems.map(({ label, Icon }) => (
           <button
             key={label}
             type="button"
-            className="inline-flex items-center gap-1 hover:text-gray-900"
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 hover:bg-[#f2f4f8]"
           >
-            <Icon className="h-3.5 w-3.5" />
+            <Icon className="h-4 w-4" strokeWidth={1.75} />
             <span>{label}</span>
           </button>
         ))}
 
         <div className="relative">
-          <input
-            type="text"
-            placeholder="Search table..."
-            className="border rounded px-2 py-1 text-[13px] w-40 focus:w-64 transition-all"
-            value={globalSearch}
-            onChange={(e) => {
-              const next = e.target.value;
-              onGlobalSearchChange(next);
-            }}
-          />
-          <Search className="absolute right-2 top-1.5 h-3.5 w-3.5 text-gray-400" />
+          <button
+            ref={searchTriggerRef}
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#667085] hover:text-[#344054] hover:bg-[#f2f4f8]"
+            onClick={() => setSearchOpen((p) => !p)}
+            aria-label="Search"
+          >
+            <Search className="h-4 w-4" strokeWidth={1.75} />
+          </button>
+
+          {searchOpen && (
+            <div
+              ref={searchRef}
+              className="absolute right-0 top-full z-40 mt-0 flex w-[360px] items-center gap-2 rounded-b-lg rounded-t-none border border-[#e6e8ef] bg-white px-3 py-2 shadow-lg"
+            >
+              <input
+                autoFocus
+                type="text"
+                placeholder="Find in view..."
+                className="h-9 flex-1 rounded-md border border-[#d9dde8] bg-white px-3 text-[13px] text-[#344054] placeholder:text-[#98a2b3] focus:outline-white focus:ring-0"
+                value={globalSearch}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  onGlobalSearchChange(next);
+                }}
+              />
+              <button
+                type="button"
+                className="h-9 rounded-md bg-black px-3 text-[12px] font-medium text-white hover:bg-neutral-800"
+              >
+                Ask Omni
+              </button>
+              <button
+                type="button"
+                className="p-1 text-[#98a2b3] hover:text-[#344054]"
+                aria-label="Close search"
+                onClick={() => setSearchOpen(false)}
+              >
+                <X className="h-4 w-4" strokeWidth={1.75} />
+              </button>
+            </div>
+          )}
         </div>
 
         {open && (
           <div
             ref={menuRef}
-            className="absolute left-0 top-full mt-2 z-40 w-72 rounded-lg border border-gray-200 bg-white shadow-xl"
+            className="absolute left-0 top-full mt-2 z-40 w-72 rounded-lg border border-[#e6e8ef] bg-white shadow-xl"
           >
             <div className="px-3 py-2 text-[13px] text-gray-600 flex items-center justify-between border-b">
               <span className="font-medium text-gray-800">Hide fields</span>
@@ -474,14 +512,14 @@ export default function TableToolbar({
               <button
                 type="button"
                 onClick={onHideAll}
-                className="rounded border border-gray-200 px-3 py-2 text-gray-700 hover:bg-gray-50"
+                className="rounded border border-[#e6e8ef] px-3 py-2 text-gray-700 hover:bg-gray-50"
               >
                 Hide all
               </button>
               <button
                 type="button"
                 onClick={onShowAll}
-                className="rounded border border-gray-200 px-3 py-2 text-gray-700 hover:bg-gray-50"
+                className="rounded border border-[#e6e8ef] px-3 py-2 text-gray-700 hover:bg-gray-50"
               >
                 Show all
               </button>
@@ -492,7 +530,7 @@ export default function TableToolbar({
         {sortOpen && (
           <div
             ref={sortRef}
-            className="absolute left-0 top-full mt-2 z-40 w-80 rounded-lg border border-gray-200 bg-white shadow-xl"
+            className="absolute left-0 top-full mt-2 z-40 w-80 rounded-lg border border-[#e6e8ef] bg-white shadow-xl"
           >
             <div className="px-3 py-2 text-[13px] text-gray-700 flex items-center justify-between border-b">
               <span className="font-medium text-gray-800">Sort by</span>
@@ -571,7 +609,7 @@ export default function TableToolbar({
                             setLocalSorts(next);
                             if (localSorts.auto) onSortsChange(next, true);
                           }}
-                          className="flex-1 rounded border border-gray-300 px-2 py-1 text-gray-800"
+                          className="flex-1 rounded border border-[#d9dde8] px-2 py-1 text-gray-800 focus:border-[#2557e0] focus:outline-none focus:ring-2 focus:ring-[#2557e0]/20"
                         >
                           {orderedFields.map((field) => (
                             <option key={field.id} value={field.id}>
@@ -591,7 +629,7 @@ export default function TableToolbar({
                             setLocalSorts(next);
                             if (localSorts.auto) onSortsChange(next, true);
                           }}
-                          className="min-w-[110px] rounded border border-gray-300 px-2 py-1 text-gray-800"
+                          className="min-w-[110px] rounded border border-[#d9dde8] px-2 py-1 text-gray-800 focus:border-[#2557e0] focus:outline-none focus:ring-2 focus:ring-[#2557e0]/20"
                         >
                           {isNumber ? (
                             <>
@@ -678,7 +716,7 @@ export default function TableToolbar({
                     setLocalSorts(next);
                     onSortsChange(next, next.auto);
                   }}
-                  className="rounded border-gray-300 text-blue-600"
+                  className="rounded border-[#d9dde8] text-blue-600"
                 />
                 Automatically sort records
               </label>
@@ -701,7 +739,7 @@ export default function TableToolbar({
         {filterOpen && (
           <div
             ref={filterRef}
-            className="absolute left-0 top-full mt-2 z-40 w-[480px] max-w-[95vw] rounded-lg border border-gray-200 bg-white shadow-xl"
+            className="absolute left-0 top-full mt-2 z-40 w-[480px] max-w-[95vw] rounded-lg border border-[#e6e8ef] bg-white shadow-xl"
           >
             <div className="px-4 py-3 text-[13px] text-gray-700 border-b flex items-center justify-between">
               <span className="font-medium text-gray-800">In this view, show records</span>
@@ -759,7 +797,7 @@ export default function TableToolbar({
                                 };
                                 commitFilters(next);
                               }}
-                              className="rounded border border-gray-300 px-2 py-1 text-gray-800"
+                              className="rounded border border-[#d9dde8] px-2 py-1 text-gray-800 focus:border-[#2557e0] focus:outline-none focus:ring-2 focus:ring-[#2557e0]/20"
                             >
                               <option value="and">and</option>
                               <option value="or">or</option>
@@ -768,7 +806,7 @@ export default function TableToolbar({
                         )}
                       </div>
 
-                      <div className="flex flex-1 items-center gap-1 rounded border border-gray-200 px-1 py-2 bg-white min-w-0">
+                      <div className="flex flex-1 items-center gap-1 rounded border border-[#e6e8ef] px-1 py-2 bg-white min-w-0">
                         {(() => {
                           const fieldForCondition = orderedFields.find((f) => f.id === condition.fieldId);
                           const operatorOptions = operatorOptionsForField(fieldForCondition);
@@ -798,7 +836,7 @@ export default function TableToolbar({
                             };
                             commitFilters(next);
                           }}
-                          className="min-w-[80px] rounded border border-gray-300 px-2 py-1 text-gray-800"
+                          className="min-w-[80px] rounded border border-[#d9dde8] px-2 py-1 text-gray-800 focus:border-[#2557e0] focus:outline-none focus:ring-2 focus:ring-[#2557e0]/20"
                         >
                           {orderedFields.map((field) => (
                             <option key={field.id} value={field.id}>
@@ -829,7 +867,7 @@ export default function TableToolbar({
                               commitFilters(next);
                             }
                           }}
-                          className="min-w-[80px] rounded border border-gray-300 px-2 py-1 text-gray-800"
+                          className="min-w-[80px] rounded border border-[#d9dde8] px-2 py-1 text-gray-800 focus:border-[#2557e0] focus:outline-none focus:ring-2 focus:ring-[#2557e0]/20"
                         >
                           {operatorOptions.map((opt) => (
                             <option key={opt.value} value={opt.value}>
@@ -854,7 +892,7 @@ export default function TableToolbar({
                             });
                           }}
                           placeholder="Enter a value"
-                          className="min-w-[80px] rounded border border-gray-300 px-2 py-1 text-gray-800"
+                          className="min-w-[80px] rounded border border-[#d9dde8] px-2 py-1 text-gray-800 focus:border-[#2557e0] focus:outline-none focus:ring-2 focus:ring-[#2557e0]/20"
                           disabled={
                             condition.operator === "is_empty" || condition.operator === "is_not_empty"
                           }

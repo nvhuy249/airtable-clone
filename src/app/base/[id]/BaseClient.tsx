@@ -13,6 +13,7 @@ import type { Condition as FilterCondition, SortItem, SortState } from "./compon
 import { api } from "~/trpc/react";
 import type { RouterOutputs } from "~/trpc/react";
 import { defaultViewConfig } from "~/server/viewConfig";
+import { ChevronDown } from "lucide-react";
 
 type TableById = RouterOutputs["table"]["byId"];
 type TableField = TableById["fields"][number];
@@ -1386,40 +1387,47 @@ function BaseClientContent({
 
   if (loading) {
     return (
-      <div className="flex h-screen bg-[#f7f7fb]">
+      <div className="flex h-screen bg-white">
         {/* LEFT APP RAIL */}
         <AppRail userInitial={userInitial} />
 
         {/* RIGHT MAIN AREA */}
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* TOP BAR */}
-          <div className="flex items-center justify-between px-5 py-3 border border-gray-200 bg-white">
-            <div className="flex items-center gap-3 min-w-[220px]">
-              <Image
-                src="/airtable-logo-white.png"
-                alt="Airtable logo"
-                width={28}
-                height={28}
-                className="h-7 w-7 rounded-md border border-gray-300 bg-grey-500 p-1 cursor-pointer"
-                onClick={() => (window.location.href = "/")}
-                priority
-              />
-              <div className="font-semibold text-sm">{baseName}</div>
-            </div>
-            <div className="flex-1 flex justify-center">
-              <div className="flex gap-5 text-sm text-gray-600">
-                <span className="font-semibold text-[#2557e0]">Data</span>
-                <span>Automations</span>
-                <span>Interfaces</span>
-                <span>Forms</span>
+          <div className="flex h-12 items-center justify-between border-b border-[#e6e8ef] bg-white px-4 text-[13px]">
+            <div className="flex min-w-[200px] items-center gap-2">
+            <Image
+              src="/airtable-logo-white.png"
+              alt="Airtable logo"
+              width={28}
+              height={28}
+              className="h-7 w-7 rounded-md bg-[#4b5563] p-1 cursor-pointer"
+              onClick={() => (window.location.href = "/")}
+              priority
+            />
+            <div className="text-[15px] font-semibold text-[#111827]">{baseName}</div>
+          </div>
+            <div className="flex flex-1 justify-center">
+              <div className="flex items-center gap-6 text-[13px] text-[#667085]">
+                <span className="relative px-2 pb-2 text-[#111827] font-medium after:absolute after:-bottom-[1px] after:left-0 after:right-0 after:h-[2px] after:bg-[#111827]">
+                  Data
+                </span>
+                <span className="px-2 pb-2 hover:text-[#111827]">Automations</span>
+                <span className="px-2 pb-2 hover:text-[#111827]">Interfaces</span>
+                <span className="px-2 pb-2 hover:text-[#111827]">Forms</span>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <button className="rounded-full bg-[#2557e0] px-3 py-1 text-white text-xs">Share</button>
-              <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-sm text-gray-600">
-                {userInitial}
-              </div>
-            </div>
+          <div className="flex items-center gap-2 text-[12px] text-[#344054]">
+            <button className="inline-flex h-8 items-center rounded-full border border-[#e6e8ef] bg-[#f2f3f5] px-3 font-medium text-[#2c3b52]">
+              Trial: Expires Soon
+            </button>
+            <button className="inline-flex h-8 items-center gap-1 rounded-md border border-[#e6e8ef] bg-white px-3 font-medium text-[#2c3b52] hover:bg-[#f2f4f8]">
+              Launch
+            </button>
+            <button className="inline-flex h-8 items-center rounded-md border border-transparent bg-[#4b5563] px-3 font-semibold text-white hover:bg-[#3d4552]">
+              Share
+            </button>
+          </div>
           </div>
 
           {/* TABLE TABS ONLY */}
@@ -1442,47 +1450,50 @@ function BaseClientContent({
   }
 
   return (
-    <div className="flex h-screen bg-[#f7f7fb]">
+    <div className="flex h-screen bg-white">
       {/* LEFT APP RAIL */}
       <AppRail userInitial={userInitial} />
 
       {/* RIGHT MAIN AREA */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* TOP BAR = logo + base name + Data/Automations/Interfaces/Forms + right buttons */}
-        <div className="flex items-center justify-between px-5 py-3 border border-gray-200 bg-white">
+        <div className="flex h-14 items-center justify-between border-b border-[#e6e8ef] bg-white px-4 text-[13px]">
           {/* LEFT: logo + base name */}
-          <div className="flex items-center gap-3 min-w-[220px]">
-            <Image
-              src="/airtable-logo-white.png"
-              alt="Airtable logo"
-              width={28}
-              height={28}
-              className="h-7 w-7 rounded-md border border-gray-300 bg-gray-500 p-1 cursor-pointer"
-              onClick={() => (window.location.href = "/")}
-              priority
-            />
-            <div className="font-semibold text-sm">{baseName}</div>
-          </div>
+            <div className="flex min-w-[200px] items-center gap-2">
+              <Image
+                src="/airtable-logo-white.png"
+                alt="Airtable logo"
+                width={24}
+                height={24}
+                className="h-8 w-8 rounded-md bg-[#4b5563] p-1 cursor-pointer"
+                onClick={() => (window.location.href = "/")}
+                priority
+              />
+              <div className="text-[16px] font-bold text-[#111827]">{baseName}</div>
+              <div className="text-[18px] text-[#98a2b3]"><ChevronDown /></div>
+            </div>
 
           {/* CENTER: Data / Automations / Interfaces / Forms */}
-          <div className="flex-1 flex justify-center">
-            <div className="flex gap-5 text-sm text-gray-600">
-              <button className="pb-[8px] border-b-2 border-black font-medium text-black">
+          <div className="flex flex-1 justify-center">
+            <div className="flex items-center gap-6 text-[13px] text-[#667085]">
+              <button className="relative px-2 pb-2 text-[#111827] font-medium after:absolute after:-bottom-[1px] after:left-0 after:right-0 after:h-[2px] after:bg-[#111827]">
                 Data
               </button>
-              <button className="pb-[8px] hover:text-black">Automations</button>
-              <button className="pb-[8px] hover:text-black">Interfaces</button>
-              <button className="pb-[8px] hover:text-black">Forms</button>
+              <button className="px-2 pb-2 hover:text-[#111827]">Automations</button>
+              <button className="px-2 pb-2 hover:text-[#111827]">Interfaces</button>
+              <button className="px-2 pb-2 hover:text-[#111827]">Forms</button>
             </div>
           </div>
 
           {/* RIGHT: trial / launch / share */}
-          <div className="flex items-center gap-2 text-xs">
-            <div className="px-3 py-1 rounded-full border border-gray-300 bg-gray-50">
-              Trial: 13 days left
-            </div>
-            <button className="px-3 py-1 border rounded-full">Launch</button>
-            <button className="px-3 py-1 border rounded-full font-medium">
+          <div className="flex items-center gap-2 text-[12px] text-[#344054]">
+            <button className="inline-flex h-8 items-center rounded-full border border-[#e6e8ef] bg-[#f2f3f5] px-3 font-medium text-[#2c3b52]">
+              Trial: Expires Soon
+            </button>
+            <button className="inline-flex h-8 items-center gap-1 rounded-md border border-[#e6e8ef] bg-white px-3 font-medium text-[#2c3b52] hover:bg-[#f2f4f8]">
+              Launch
+            </button>
+            <button className="inline-flex h-8 items-center rounded-md border border-transparent bg-[#4b5563] px-3 font-semibold text-white hover:bg-[#3d4552]">
               Share
             </button>
           </div>
