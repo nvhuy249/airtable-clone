@@ -39,7 +39,6 @@ type RowData = Record<string, ColumnValue> & { __recordId: string; __rowIndex: n
 const displayValue = (value: ColumnValue) => (value == null ? "" : String(value));
 const VIRTUAL_ROW_HEIGHT = 32;
 const VIRTUAL_OVERSCAN = 8;
-const ROW_HEADER_WIDTH = 56;
 const FIRST_COL_STICKY_CLASS = "left-[56px]";
 const FIRST_SEPARATOR_LEFT_CLASS = "left-[236px]";
 const TEXT_COL_CLASS = "w-[180px] min-w-[180px]";
