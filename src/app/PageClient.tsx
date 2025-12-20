@@ -15,7 +15,6 @@ import {
   FiMoreHorizontal,
   FiEdit2,
   FiTrash2,
-  FiGrid,
 } from "react-icons/fi";
 
 import type { Base } from "./components/BaseCard";
@@ -43,6 +42,25 @@ const PENDING_DELETED_TTL = 24 * 60 * 60 * 1000; // 24 hours
 type PendingDelete = { id: string; ts: number };
 type RenameState = { id: string; value: string } | null;
 type GroupedBases = { label: string; items: Base[] };
+
+function GridViewIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+      className={className}
+      fill="currentColor"
+      shapeRendering="geometricPrecision"
+    >
+      <path
+        fillRule="nonzero"
+        d="M3.25 2.25C2.70364 2.25 2.25 2.70364 2.25 3.25V12.75C2.25 13.2964 2.70364 13.75 3.25 13.75H12.75C13.2964 13.75 13.75 13.2964 13.75 12.75V3.25C13.75 2.70364 13.2964 2.25 12.75 2.25H3.25ZM3.25 3.25H7.5V7.5H3.25V3.25ZM8.5 3.25H12.75V7.5H8.5V3.25ZM3.25 8.5H7.5V12.75H3.25V8.5ZM8.5 8.5H12.75V12.75H8.5V8.5Z"
+      />
+    </svg>
+  );
+}
 
 const loadPendingDeleted = (): Map<string, number> => {
   if (typeof window === "undefined") return new Map();
@@ -160,7 +178,7 @@ export default function PageClient({ user, bases }: PageClientProps) {
   const expanded = sidebarOpen || sidebarHover;
 
   // Pad content instead of margin to avoid horizontal overflow when expanded
-  const contentPadding = sidebarOpen ? "pl-[256px]" : "pl-16";
+  const contentPadding = sidebarOpen ? "pl-75" : "pl-16";
 
   // Fake date filtering demo â€” update when you have timestamps
   const filteredBases = useMemo(() => {
@@ -340,26 +358,26 @@ export default function PageClient({ user, bases }: PageClientProps) {
             </div>
 
             {/* View Toggle Buttons */}
-            <div className="flex gap-2">
+            <div className="flex gap-1">
               <button
                 onClick={() => setView("list")}
-                className={`px-3 py-1.5 rounded-full border ${
+                className={`px-1 py-1.5 rounded-full border ${
                   view === "list"
-                    ? "border-[#d8dce5] bg-white text-[#1f2933]"
+                    ? "border-[#d8dce5] bg-gray-300 text-[#1f2933]"
                     : "border-transparent bg-transparent text-[#6b7280] hover:bg-white/70 hover:border-[#e6e8eb]"
                 }`}
               >
-                <FiMenu className="h-4 w-4" />
+                <FiMenu className="h-5 w-5" />
               </button>
               <button
                 onClick={() => setView("grid")}
-                className={`px-3 py-1.5 rounded-full border ${
+                className={`px-1 py-1.5 rounded-full border ${
                   view === "grid"
-                    ? "border-[#d8dce5] bg-white text-[#1f2933]"
-                    : "border-transparent bg-transparent text-[#6b7280] hover:bg-white/70 hover:border-[#e6e8eb]"
+                  ? "border-[#d8dce5] bg-gray-300 text-[#1f2933]"
+                  : "border-transparent bg-transparent text-[#6b7280] hover:bg-white/70 hover:border-[#e6e8eb]"
                 }`}
               >
-                <FiGrid className="h-4 w-4" />
+                <GridViewIcon className="h-5 w-5" />
               </button>
             </div>
           </div>
@@ -382,7 +400,7 @@ export default function PageClient({ user, bases }: PageClientProps) {
                   {groupBasesByRecency(filteredBases).map((group) => (
                     <div key={group.label} className="space-y-3">
                       <div className="text-[12px] text-[#6b7280]">{group.label}</div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
                         {group.items.map((base) => (
                           <BaseCard
                             key={base.id}

@@ -131,7 +131,7 @@ export default function BaseCard({
 
   return (
     <div
-      className={`relative border rounded-xl bg-white transition shadow-sm w-full ${
+      className={`relative border rounded-xl bg-white transition shadow-sm w-full max-w-[300px] min-h-[70px] ${
         hovered || menuOpen ? "shadow-md border-[#c2cad8] bg-[#e8edf3]" : "border-[#e6e8eb]"
       } hover:bg-[#e8edf3]`}
       role="button"
@@ -149,7 +149,7 @@ export default function BaseCard({
         setMenuOpen(false);
       }}
     >
-      <div className="relative z-10 flex items-start gap-3 p-4">
+      <div className="relative z-10 flex items-start gap-3 p-5">
         <div className="h-9 w-9 rounded-lg bg-[#eef2f7] text-[#4b5563] flex items-center justify-center text-[13px] font-semibold border border-[#e6e8eb]">
           {initials}
         </div>
