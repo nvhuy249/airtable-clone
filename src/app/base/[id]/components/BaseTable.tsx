@@ -39,6 +39,11 @@ type RowData = Record<string, ColumnValue> & { __recordId: string; __rowIndex: n
 const displayValue = (value: ColumnValue) => (value == null ? "" : String(value));
 const VIRTUAL_ROW_HEIGHT = 32;
 const VIRTUAL_OVERSCAN = 8;
+const ROW_HEADER_WIDTH = 56;
+const FIRST_COL_STICKY_CLASS = "left-[56px]";
+const FIRST_SEPARATOR_LEFT_CLASS = "left-[236px]";
+const TEXT_COL_CLASS = "w-[180px] min-w-[180px]";
+const NUMBER_COL_CLASS = "w-[180px] min-w-[180px]";
 
 const readCellValue = (field: FieldShape, cell?: CellShape | null): ColumnValue => {
   if (!cell) return null;
@@ -1159,7 +1164,7 @@ export default function BaseTable({
     if (isRowNumber || isAddField) return "w-[56px] min-w-[56px] text-center";
     const field = fieldLookup[columnId];
     const isNumber = field?.type?.toString().toUpperCase() === "NUMBER";
-    return isNumber ? "w-[180px] min-w-[180px]" : "w-[180px] min-w-[180px]";
+    return isNumber ? NUMBER_COL_CLASS : TEXT_COL_CLASS;
   };
 
   const firstDataColumnId = visibleColumnOrder[0];
@@ -1168,7 +1173,7 @@ export default function BaseTable({
       return `${isHeader ? "sticky left-0 z-30" : "sticky left-0 z-10"} bg-inherit`;
     }
     if (firstDataColumnId && columnId === firstDataColumnId) {
-      return `${isHeader ? "sticky left-[44px] z-20" : "sticky left-[44px] z-[5]"} bg-inherit`;
+      return `${isHeader ? `sticky ${FIRST_COL_STICKY_CLASS} z-20` : `sticky ${FIRST_COL_STICKY_CLASS} z-[5]`} bg-inherit`;
     }
     return "";
   };
@@ -1215,7 +1220,7 @@ export default function BaseTable({
           maybeLoadMore();
         }}
       >
-        <div className="pointer-events-none absolute top-0 bottom-0 left-[224px] w-px bg-[#e6e8ef] z-0" />
+        <div className={`pointer-events-none absolute top-0 bottom-0 ${FIRST_SEPARATOR_LEFT_CLASS} w-px bg-[#e6e8ef] z-0`} />
         <div className="pointer-events-none absolute top-0 left-0 right-0 h-8 bg-white z-0" />
         {isLoading && (
           <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
