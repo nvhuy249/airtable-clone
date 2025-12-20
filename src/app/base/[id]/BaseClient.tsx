@@ -135,10 +135,17 @@ function BaseClientContent({
   const shouldRefetchRecordsRef = useRef(true);
   const lastSearchByViewRef = useRef<Record<string, string>>({});
   const lastFiltersByViewRef = useRef<Record<string, string>>({});
+  const lastHiddenByViewRef = useRef<Record<string, string>>({});
+  const lastSortsByViewRef = useRef<Record<string, string>>({});
+  const hiddenPersistHandleRef = useRef<number | null>(null);
+  const sortPersistHandleRef = useRef<number | null>(null);
   const forceHydrateViewRef = useRef(false);
   const lastActiveViewIdRef = useRef<string | null>(null);
   const [viewSidebarPinned, setViewSidebarPinned] = useState(true);
   const [viewSidebarHoverOpen, setViewSidebarHoverOpen] = useState(false);
+
+  const serializeHidden = useCallback((ids: string[]) => JSON.stringify(ids ?? []), []);
+  const serializeSorts = useCallback((items: SortItem[]) => JSON.stringify(items ?? []), []);
 
   const viewSidebarOpen = viewSidebarPinned || viewSidebarHoverOpen;
 
@@ -505,12 +512,24 @@ function BaseClientContent({
       });
     }
 
-    setSortUi((prev) => {
-      const nextAuto = prev.auto ?? true;
-      const next = { ...prev, items: nextSorts, auto: nextAuto };
-      return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
-    });
-    setAppliedSorts((prev) => (JSON.stringify(prev) === JSON.stringify(nextSorts) ? prev : nextSorts));
+    const serializedNextSorts = serializeSorts(nextSorts);
+    const serializedLocalSorts = serializeSorts(appliedSorts);
+    const lastLocalSorts = lastSortsByViewRef.current[activeView.id];
+    const hasNewerLocalSorts =
+      lastLocalSorts !== undefined &&
+      lastLocalSorts === serializedNextSorts &&
+      serializedNextSorts !== serializedLocalSorts;
+    const isStaleServerSorts = lastLocalSorts !== undefined && lastLocalSorts !== serializedNextSorts;
+
+    if (shouldForceHydrate || (!hasNewerLocalSorts && !isStaleServerSorts)) {
+      setSortUi((prev) => {
+        const nextAuto = prev.auto ?? true;
+        const next = { ...prev, items: nextSorts, auto: nextAuto };
+        return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+      });
+      setAppliedSorts((prev) => (JSON.stringify(prev) === JSON.stringify(nextSorts) ? prev : nextSorts));
+      lastSortsByViewRef.current[activeView.id] = serializedNextSorts;
+    }
     const nextSearch = cfg.search ?? "";
     const lastLocalSearch = lastSearchByViewRef.current[activeView.id];
     const isServerEchoOfLocal = lastLocalSearch !== undefined && lastLocalSearch === nextSearch;
@@ -523,19 +542,33 @@ function BaseClientContent({
         return prev === nextSearch ? prev : nextSearch;
       });
     }
-    setHiddenFieldIds((prev) => {
-      const next = cfg.hiddenFieldIds ?? [];
-      return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
-    });
+    const serializedNextHidden = serializeHidden(cfg.hiddenFieldIds ?? []);
+    const lastLocalHidden = lastHiddenByViewRef.current[activeView.id];
+    const currentSerializedHidden = serializeHidden(hiddenFieldIds);
+    const shouldApplyHidden =
+      shouldForceHydrate ||
+      !lastLocalHidden ||
+      lastLocalHidden === serializedNextHidden;
+
+    if (shouldApplyHidden && currentSerializedHidden !== serializedNextHidden) {
+      setHiddenFieldIds(cfg.hiddenFieldIds ?? []);
+      lastHiddenByViewRef.current[activeView.id] = serializedNextHidden;
+    }
     if (shouldForceHydrate) {
       forceHydrateViewRef.current = false;
     }
-  }, [activeView, filters, globalSearch]);
+  }, [activeView, filters, globalSearch, hiddenFieldIds, serializeHidden, serializeSorts]);
 
   useEffect(() => {
     return () => {
       if (filterDebounceHandleRef.current) {
         window.clearTimeout(filterDebounceHandleRef.current);
+      }
+      if (hiddenPersistHandleRef.current) {
+        window.clearTimeout(hiddenPersistHandleRef.current);
+      }
+      if (sortPersistHandleRef.current) {
+        window.clearTimeout(sortPersistHandleRef.current);
       }
     };
   }, []);
@@ -573,7 +606,7 @@ function BaseClientContent({
     return () => window.removeEventListener("beforeunload", handler);
   }, [logQueueSnapshot]);
 
-  const persistViewConfig = useCallback(
+const persistViewConfig = useCallback(
     (overrides?: {
       filters?: { connector: "and" | "or"; conditions: FilterCondition[] };
       sorts?: SortItem[];
@@ -586,10 +619,48 @@ function BaseClientContent({
       if (overrides?.filters) {
         lastFiltersByViewRef.current[activeViewId] = serializeFilters(overrides.filters);
       }
+      if (overrides?.sorts) {
+        lastSortsByViewRef.current[activeViewId] = serializeSorts(overrides.sorts);
+      }
+      if (overrides?.hiddenFieldIds) {
+        lastHiddenByViewRef.current[activeViewId] = serializeHidden(overrides.hiddenFieldIds);
+      }
       shouldRefetchRecordsRef.current = !(options?.skipRecordRefresh ?? false);
       updateView.mutate({ viewId: activeViewId, config: nextConfig });
     },
-    [activeViewId, buildViewConfig, updateView],
+    [activeViewId, buildViewConfig, serializeFilters, serializeHidden, serializeSorts, updateView],
+  );
+
+  const schedulePersistHidden = useCallback(
+    (nextHidden: string[]) => {
+      if (!activeViewId) return;
+      if (hiddenPersistHandleRef.current) {
+        window.clearTimeout(hiddenPersistHandleRef.current);
+      }
+      const serialized = serializeHidden(nextHidden);
+      lastHiddenByViewRef.current[activeViewId] = serialized;
+      hiddenPersistHandleRef.current = window.setTimeout(() => {
+        persistViewConfig({ hiddenFieldIds: nextHidden }, { skipRecordRefresh: true });
+        hiddenPersistHandleRef.current = null;
+      }, 180);
+    },
+    [activeViewId, persistViewConfig, serializeHidden],
+  );
+
+  const schedulePersistSorts = useCallback(
+    (nextSorts: SortItem[]) => {
+      if (!activeViewId) return;
+      if (sortPersistHandleRef.current) {
+        window.clearTimeout(sortPersistHandleRef.current);
+      }
+      const serialized = serializeSorts(nextSorts);
+      lastSortsByViewRef.current[activeViewId] = serialized;
+      sortPersistHandleRef.current = window.setTimeout(() => {
+        persistViewConfig({ sorts: nextSorts }, { skipRecordRefresh: true });
+        sortPersistHandleRef.current = null;
+      }, 180);
+    },
+    [activeViewId, persistViewConfig, serializeSorts],
   );
 
   useEffect(() => {
@@ -1407,7 +1478,7 @@ function BaseClientContent({
         {/* RIGHT MAIN AREA */}
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* TOP BAR */}
-          <div className="flex h-12 items-center justify-between border-b border-[#e6e8ef] bg-white px-4 text-[13px]">
+          <div className="relative flex h-12 items-center justify-between border-b border-[#e6e8ef] bg-white px-4 text-[13px]">
             <div className="flex min-w-[200px] items-center gap-2">
             <Image
               src="/airtable-logo-white.png"
@@ -1420,9 +1491,9 @@ function BaseClientContent({
             />
             <div className="text-[15px] font-semibold text-[#111827]">{baseName}</div>
           </div>
-            <div className="flex flex-1 justify-center">
-              <div className="flex items-center gap-6 text-[13px] text-[#667085]">
-                <span className="relative px-2 pb-2 text-[#111827] font-medium after:absolute after:-bottom-[1px] after:left-0 after:right-0 after:h-[2px] after:bg-[#111827]">
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+              <div className="flex items-center gap-1 text-[13px] text-[#667085]">
+                <span className="relative px-2 pb-2 text-[#111827] font-medium after:absolute after:left-[8px] after:right-[8px] after:bottom-[-12px] after:h-[2px] after:bg-[#111827]">
                   Data
                 </span>
                 <span className="px-2 pb-2 hover:text-[#111827]">Automations</span>
@@ -1431,6 +1502,9 @@ function BaseClientContent({
               </div>
             </div>
           <div className="flex items-center gap-2 text-[12px] text-[#344054]">
+            <button className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#e6e8ef] bg-white text-[#4b5563] hover:bg-[#f2f4f8]">
+              <RefreshCycleIcon className="h-4 w-4" />
+            </button>
             <button className="inline-flex h-8 items-center rounded-full border border-[#e6e8ef] bg-[#f2f3f5] px-3 font-medium text-[#2c3b52]">
               Trial: Expires Soon
             </button>
@@ -1470,7 +1544,7 @@ function BaseClientContent({
       {/* RIGHT MAIN AREA */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* TOP BAR = logo + base name + Data/Automations/Interfaces/Forms + right buttons */}
-        <div className="flex h-14 items-center justify-between border-b border-[#e6e8ef] bg-white px-4 text-[13px]">
+        <div className="relative flex h-14 items-center justify-between border-b border-[#e6e8ef] bg-white px-4 text-[13px]">
           {/* LEFT: logo + base name */}
             <div className="flex min-w-[200px] items-center gap-2">
               <Image
@@ -1487,9 +1561,9 @@ function BaseClientContent({
             </div>
 
           {/* CENTER: Data / Automations / Interfaces / Forms */}
-          <div className="flex flex-1 justify-center">
-            <div className="flex items-center gap-6 text-[13px] text-[#667085]">
-              <button className="relative px-2 pb-2 text-[#111827] font-medium after:absolute after:-bottom-[1px] after:left-0 after:right-0 after:h-[2px] after:bg-[#111827]">
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+            <div className="flex items-center gap-1 text-[13px] text-[#667085]">
+              <button className="relative px-2 pb-2 text-[#111827] font-medium after:absolute after:left-[8px] after:right-[8px] after:bottom-[-14px] after:h-[2px] after:bg-[#111827]">
                 Data
               </button>
               <button className="px-2 pb-2 hover:text-[#111827]">Automations</button>
@@ -1500,6 +1574,9 @@ function BaseClientContent({
 
           {/* RIGHT: trial / launch / share */}
           <div className="flex items-center gap-2 text-[12px] text-[#344054]">
+            <button className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#e6e8ef] bg-white text-[#4b5563] hover:bg-[#f2f4f8]">
+              <RefreshCycleIcon className="h-4 w-4" />
+            </button>
             <button className="inline-flex h-8 items-center rounded-full border border-[#e6e8ef] bg-[#f2f3f5] px-3 font-medium text-[#2c3b52]">
               Trial: Expires Soon
             </button>
@@ -1569,7 +1646,7 @@ function BaseClientContent({
                 const next = prev.includes(fieldId)
                   ? prev.filter((id) => id !== fieldId)
                   : [...prev, fieldId];
-                persistViewConfig({ hiddenFieldIds: next });
+                schedulePersistHidden(next);
                 return next;
               });
             }}
@@ -1578,13 +1655,13 @@ function BaseClientContent({
               if (loading) return;
               const ids = (tableQuery.data?.fields ?? []).map((f) => f.id);
               setHiddenFieldIds(ids);
-              persistViewConfig({ hiddenFieldIds: ids });
+              schedulePersistHidden(ids);
             }}
 
             onShowAll={() => {
               if (loading) return;
               setHiddenFieldIds([]);
-              persistViewConfig({ hiddenFieldIds: [] });
+              schedulePersistHidden([]);
             }}
 
             onFiltersChange={(next) => {
@@ -1612,7 +1689,7 @@ function BaseClientContent({
                 return;
               }
               setAppliedSorts(next.items);
-              persistViewConfig({ sorts: next.items }, { skipRecordRefresh: true });
+              schedulePersistSorts(next.items);
             }}
 
             globalSearch={loading ? "" : globalSearch}
@@ -1748,3 +1825,4 @@ export default function BaseClient(props: BaseClientProps) {
     </SessionProvider>
   );
 }
+import { RefreshCycleIcon } from "./components/icons/RefreshCycleIcon";

@@ -6,7 +6,7 @@ import { FiHelpCircle, FiBell } from "react-icons/fi";
 
 export default function AppRail({ userInitial }: { userInitial: string }) {
   return (
-    <div className="w-12 bg-white border-r border-[#e6e8ef] flex flex-col items-center py-3 h-screen gap-2">
+    <div className="w-14 bg-white border-r border-[#e6e8ef] flex flex-col items-center py-3 h-screen gap-2">
       <Link
         href="/"
         className="group relative flex h-9 w-9 items-center justify-center rounded-md hover:bg-[#f2f4f8]"

@@ -5,19 +5,22 @@ import {
   ArrowUpDown,
   ChevronDown,
   EyeOff,
-  Filter,
+  GripVertical,
   Menu,
-  Palette,
   Plus,
   Search,
   Eye,
   X,
   Trash2,
-  GripVertical,
-  Table,
-  Share2,
+  MoreVertical,
+  CircleHelp,
 } from "lucide-react";
 import { GridViewIcon } from "./icons/GridViewIcon";
+import { FilterIcon } from "./icons/FilterIcon";
+import { GroupIcon } from "./icons/GroupIcon";
+import { ColorIcon } from "./icons/ColorIcon";
+import { ListMoveIcon } from "./icons/ListMoveIcon";
+import { ShareSyncIcon } from "./icons/ShareSyncIcon";
 
 type Field = { id: string; name: string; order: number; type?: "TEXT" | "NUMBER" };
 
@@ -73,9 +76,9 @@ export type SortItem = { id: string; fieldId: string; direction: "asc" | "desc" 
 export type SortState = { items: SortItem[]; auto: boolean };
 
 const toolbarItems = [
-  { label: "Group", Icon: Table },
-  { label: "Color", Icon: Palette },
-  { label: "Share and sync", Icon: Share2 },
+  { label: "Group", Icon: GroupIcon },
+  { label: "Color", Icon: ColorIcon },
+  { label: "Share and sync", Icon: ShareSyncIcon },
 ];
 
 const reorderById = <T extends { id: string }>(list: T[], fromId: string, toId: string) => {
@@ -136,11 +139,14 @@ export default function TableToolbar({
   const sortTriggerRef = useRef<HTMLButtonElement | null>(null);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const searchTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [hideSearch, setHideSearch] = useState("");
+  const [sortSearch, setSortSearch] = useState("");
 
   const orderedFields = useMemo(
     () => [...fields].sort((a, b) => a.order - b.order),
     [fields],
   );
+  const [groupItem, colorItem, ...otherToolbarItems] = toolbarItems;
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -260,7 +266,7 @@ export default function TableToolbar({
   const [searchOpen, setSearchOpen] = useState(false);
 
   return (
-    <div className="flex h-10 items-center justify-between border-b border-[#e6e8ef] bg-white px-3 text-[13px] text-[#344054]">
+    <div className="flex h-12 items-center justify-between border-b border-[#e6e8ef] bg-white px-3 text-[13px] text-[#344054]">
       {/* left: Grid view pill + actions */}
       <div className="flex items-center gap-2">
         <button
@@ -286,7 +292,7 @@ export default function TableToolbar({
             startEditing(activeViewId, viewName ?? "Grid view");
           }}
         >
-          <GridViewIcon className="h-3.5 w-3.5 text-[#1b6ef3]" />
+          <GridViewIcon className="h-4 w-4 text-[#1b6ef3]" />
             {editingViewId === activeViewId ? (
               <input
                 autoFocus
@@ -327,7 +333,7 @@ export default function TableToolbar({
                   setViewActionsOpen(false);
                 }}
               >
-                <GridViewIcon className="h-3.5 w-3.5 text-[#1b6ef3]" />
+                <GridViewIcon className="h-4 w-4 text-[#1b6ef3]" />
                 <span>Rename view</span>
               </button>
               <button
@@ -387,7 +393,7 @@ export default function TableToolbar({
           }`}
           onClick={() => setFilterOpen((p) => !p)}
         >
-          <Filter className="h-4 w-4 text-[#667085] hover:text-[#344054]" strokeWidth={1.75} />
+          <FilterIcon className="h-4 w-4 text-[#667085] hover:text-[#344054]" />
           <span>
             {localFilters.conditions.length
               ? (() => {
@@ -400,6 +406,20 @@ export default function TableToolbar({
           </span>
         </button>
 
+        {groupItem &&
+          (() => {
+            const GroupIcon = groupItem.Icon;
+            return (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 hover:bg-[#f2f4f8]"
+              >
+                <GroupIcon className="h-4 w-4" strokeWidth={1.75} />
+                <span>{groupItem.label}</span>
+              </button>
+            );
+          })()}
+
         <button
           ref={sortTriggerRef}
           type="button"
@@ -410,7 +430,29 @@ export default function TableToolbar({
           <span>{localSorts.items.length ? `Sorted by ${localSorts.items.length} field${localSorts.items.length > 1 ? "s" : ""}` : "Sort"}</span>
         </button>
 
-        {toolbarItems.map(({ label, Icon }) => (
+        {colorItem &&
+          (() => {
+            const ColorIconComponent = colorItem.Icon;
+            return (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 hover:bg-[#f2f4f8]"
+              >
+                <ColorIconComponent className="h-4 w-4" />
+                <span>{colorItem.label}</span>
+              </button>
+            );
+          })()}
+
+        <button
+          type="button"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#667085] hover:text-[#344054] hover:bg-[#f2f4f8]"
+          aria-label="Reorder list"
+        >
+          <ListMoveIcon className="h-4 w-4" />
+        </button>
+
+        {otherToolbarItems.map(({ label, Icon }) => (
           <button
             key={label}
             type="button"
@@ -469,58 +511,93 @@ export default function TableToolbar({
         {open && (
           <div
             ref={menuRef}
-            className="absolute left-0 top-full mt-2 z-40 w-72 rounded-lg border border-[#e6e8ef] bg-white shadow-xl"
+            className="absolute left-0 top-full mt-2 z-40 w-80 rounded-md border border-[#d9dde3] bg-white shadow-xl"
           >
-            <div className="px-3 py-2 text-[13px] text-gray-600 flex items-center justify-between border-b">
-              <span className="font-medium text-gray-800">Hide fields</span>
-              <button
-                type="button"
-                className="p-1 rounded hover:bg-gray-100"
-                onClick={() => setOpen(false)}
-                aria-label="Close hide fields menu"
-              >
-                <X className="h-4 w-4" />
-              </button>
+            <div className="left-0 pt-1 pb-1">
+              <div className="flex items-center rounded-md bg-white px-2">
+                <input
+                  autoFocus
+                  type="text"
+                  value={hideSearch}
+                  onChange={(e) => setHideSearch(e.target.value)}
+                  placeholder="Find a field"
+                  className="h-8 flex-1 bg-transparent px-2 text-[13px] text-[#3c4a62] placeholder:text-[#9aa5b5] focus:outline-none"
+                />
+                {hideSearch ? (
+                  <button
+                    type="button"
+                    onClick={() => setHideSearch("")}
+                    className="p-1 text-[#98a2b3] hover:text-[#344054]"
+                    aria-label="Clear field search"
+                  >
+                    <X className="h-4 w-4" strokeWidth={1.5} />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="p-1 text-[#98a2b3] hover:text-[#344054]"
+                    aria-label="Help"
+                  >
+                    <CircleHelp className="h-4 w-4" strokeWidth={1.5} />
+                  </button>
+                )}
+              </div>
+              <div className="mt-2 h-px bg-[#e2e6ec]" />
             </div>
-            <div className="max-h-64 overflow-auto px-3 py-2 text-[13px]">
-              {orderedFields.map((field) => {
+            <div className="max-h-64 overflow-auto px-2 text-[13px]">
+              {(hideSearch
+                ? orderedFields.filter((f) =>
+                    f.name.toLowerCase().includes(hideSearch.trim().toLowerCase()),
+                  )
+                : orderedFields
+              ).map((field) => {
                 const hidden = isHidden(field.id);
                 return (
-                  <button
+                  <div
                     key={field.id}
-                    type="button"
-                    onClick={() => onToggleField(field.id)}
-                    className="flex w-full items-center justify-between rounded px-2 py-2 hover:bg-gray-50 text-left"
+                    className="flex w-full items-center justify-between rounded-lg px-2 hover:bg-[#f7f8fb]"
                   >
-                    <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onToggleField(field.id)}
+                      className="flex flex-1 items-center gap-3 text-left"
+                    >
                       <span
-                        className={`h-2 w-2 rounded-full ${hidden ? "bg-gray-300" : "bg-emerald-500"}`}
-                      />
+                        className={`flex h-[8px] w-[13px] items-center rounded-full px-[2px] transition-all duration-150 ${
+                          hidden
+                            ? "justify-start bg-[#e5e7eb] border border-[#d0d5dd] opacity-80"
+                            : "justify-end bg-[#168d16] border border-[#168d16]"
+                        }`}
+                      >
+                        <span className="h-[4px] w-[4px] rounded-full bg-white" />
+                      </span>
                       <span className={`text-gray-800 ${hidden ? "line-through text-gray-500" : ""}`}>
                         {field.name}
                       </span>
-                    </div>
-                    {hidden ? (
-                      <Eye className="h-4 w-4 text-gray-400" />
-                    ) : (
-                      <EyeOff className="h-4 w-4 text-gray-400" />
-                    )}
-                  </button>
+                    </button>
+                    <button
+                      type="button"
+                      className="p-1 text-[#98a2b3] hover:text-[#344054]"
+                      aria-label={`More actions for ${field.name}`}
+                    >
+                      <GripVertical className="h-4 w-4" strokeWidth={1.5} />
+                    </button>
+                  </div>
                 );
               })}
             </div>
-            <div className="grid grid-cols-2 gap-2 border-t px-3 py-2">
+            <div className="grid grid-cols-2 gap-2 px-3 py-2 round-md bg-white">
               <button
                 type="button"
                 onClick={onHideAll}
-                className="rounded border border-[#e6e8ef] px-3 py-2 text-gray-700 hover:bg-gray-50"
+                className="h-7 rounded bg-[#f2f4f7] px-1 text-gray-700 hover:bg-gray-300"
               >
                 Hide all
               </button>
               <button
                 type="button"
                 onClick={onShowAll}
-                className="rounded border border-[#e6e8ef] px-3 py-2 text-gray-700 hover:bg-gray-50"
+                className="h-7 rounded bg-[#f2f4f7] px-1 text-gray-700 hover:bg-gray-300"
               >
                 Show all
               </button>
@@ -531,162 +608,192 @@ export default function TableToolbar({
         {sortOpen && (
           <div
             ref={sortRef}
-            className="absolute left-0 top-full mt-2 z-40 w-80 rounded-lg border border-[#e6e8ef] bg-white shadow-xl"
+            className="absolute left-0 top-full mt-2 z-40 w-[420px] max-w-[95vw] rounded-xl border border-[#d9dde3] bg-white shadow-xl"
           >
-            <div className="px-3 py-2 text-[13px] text-gray-700 flex items-center justify-between border-b">
-              <span className="font-medium text-gray-800">Sort by</span>
-              <button
-                type="button"
-                className="p-1 rounded hover:bg-gray-100"
-                onClick={() => setSortOpen(false)}
-                aria-label="Close sort menu"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="px-3 py-2 text-[13px] text-gray-700 space-y-3 max-h-80 overflow-y-auto">
-              {localSorts.items.length === 0 ? (
-                <div className="space-y-2">
-                  {orderedFields.map((field) => (
-                    <button
-                      key={field.id}
-                      type="button"
-                      className="flex w-full items-center gap-2 rounded px-2 py-2 hover:bg-gray-50 text-left"
-                      onClick={() => {
-                        const next: SortState = {
-                          ...localSorts,
-                          items: [{ id: `sort-${Date.now()}`, fieldId: field.id, direction: "asc" }],
-                        };
-                        setLocalSorts(next);
-                        onSortsChange(next, next.auto);
-                      }}
-                    >
-                      <span className="text-gray-500">
-                        {field.type?.toString().toUpperCase() === "NUMBER" ? "1" : "A"}
-                      </span>
-                      <span className="text-gray-800">{field.name}</span>
-                    </button>
-                  ))}
+            {localSorts.items.length === 0 ? (
+              <>
+                <div className="flex items-center justify-between px-4 pt-3 pb-2 text-[13px] text-[#3c4a62]">
+                  <div className="flex items-center gap-1">
+                    <span className="font-medium text-gray-500">Sort by</span>
+                    <CircleHelp className="h-4 w-4 text-[#98a2b3]" strokeWidth={1.75} />
+                  </div>
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  {localSorts.items.map((item, _idx) => {
-                    const fieldForItem =
-                      orderedFields.find((f) => f.id === item.fieldId) ?? orderedFields[0];
-                    const isNumber = (fieldForItem?.type ?? "").toString().toUpperCase() === "NUMBER";
-                    return (
-                      <div
-                        key={item.id}
-                        className={`flex items-center gap-2 rounded px-1 transition-all duration-150 ${
-                          sortDragOverId === item.id ? "ring-1 ring-orange-300 bg-orange-50 translate-y-[1px]" : ""
-                        } ${draggingSortId === item.id ? "opacity-70 cursor-grabbing" : ""}`}
-                        onDragOver={(e) => {
-                          if (!draggingSortId || draggingSortId === item.id || localSorts.items.length < 2) return;
-                          e.preventDefault();
-                          setSortDragOverId(item.id);
-                        }}
-                        onDragLeave={() => {
-                          if (sortDragOverId === item.id) setSortDragOverId(null);
-                        }}
-                        onDrop={(e) => {
-                          if (!draggingSortId || localSorts.items.length < 2) return;
-                          e.preventDefault();
-                          const sourceId = e.dataTransfer.getData("text/plain") || draggingSortId;
-                          handleSortReorder(sourceId, item.id);
-                          setSortDragOverId(null);
-                          setDraggingSortId(null);
-                        }}
-                      >
-                        <select
-                          value={item.fieldId}
-                          onChange={(e) => {
-                            const next: SortState = {
-                              ...localSorts,
-                              items: localSorts.items.map((s) =>
-                                s.id === item.id ? { ...s, fieldId: e.target.value } : s,
-                              ),
-                            };
-                            setLocalSorts(next);
-                            if (localSorts.auto) onSortsChange(next, true);
-                          }}
-                          className="flex-1 rounded border border-[#d9dde8] px-2 py-1 text-gray-800 focus:border-[#2557e0] focus:outline-none focus:ring-2 focus:ring-[#2557e0]/20"
-                        >
-                          {orderedFields.map((field) => (
-                            <option key={field.id} value={field.id}>
-                              {field.name}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          value={item.direction}
-                          onChange={(e) => {
-                            const next: SortState = {
-                              ...localSorts,
-                              items: localSorts.items.map((s) =>
-                                s.id === item.id ? { ...s, direction: e.target.value as "asc" | "desc" } : s,
-                              ),
-                            };
-                            setLocalSorts(next);
-                            if (localSorts.auto) onSortsChange(next, true);
-                          }}
-                          className="min-w-[110px] rounded border border-[#d9dde8] px-2 py-1 text-gray-800 focus:border-[#2557e0] focus:outline-none focus:ring-2 focus:ring-[#2557e0]/20"
-                        >
-                          {isNumber ? (
-                            <>
-                              <option value="asc">Small → Large</option>
-                              <option value="desc">Large → Small</option>
-                            </>
-                          ) : (
-                            <>
-                              <option value="asc">A → Z</option>
-                              <option value="desc">Z → A</option>
-                            </>
-                          )}
-                        </select>
-                        <button
-                          type="button"
-                          className="p-1 rounded hover:bg-gray-100 text-gray-600"
-                          aria-label="Remove sort"
-                          onClick={() => {
+                <div className="mx-4 h-px bg-[#e2e6ec]" />
+                <div className="px-4 pb-4 pt-2 text-[13px] text-[#3c4a62] space-y-2">
+                  <div className="flex items-center gap-2 bg-white px-2 py-1.5">
+                    <Search className="h-4 w-4 text-[#98a2b3]" strokeWidth={1.6} />
+                    <input
+                      autoFocus
+                      type="text"
+                      value={sortSearch}
+                      onChange={(e) => setSortSearch(e.target.value)}
+                      placeholder="Find a field"
+                      className="h-7 flex-1 bg-transparent text-[13px] text-[#3c4a62] placeholder:text-[#9aa5b5] focus:outline-none"
+                    />
+                  </div>
+                  <div className="max-h-72 overflow-auto space-y-1">
+                    {(sortSearch
+                      ? orderedFields.filter((f) =>
+                          f.name.toLowerCase().includes(sortSearch.trim().toLowerCase()),
+                        )
+                      : orderedFields
+                    ).map((field) => (
+                      <button
+                        key={field.id}
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded px-2 py-1 text-left transition-colors hover:bg-[#f5f7fb]"
+                        onClick={() => {
                           const next: SortState = {
                             ...localSorts,
-                            items: localSorts.items.filter((s) => s.id !== item.id),
+                            items: [{ id: `sort-${Date.now()}`, fieldId: field.id, direction: "asc" }],
                           };
-                            setLocalSorts(next);
-                            const shouldCommit = localSorts.auto || next.items.length === 0;
-                            if (shouldCommit) onSortsChange(next, shouldCommit);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                        {localSorts.items.length > 1 && (
-                          <span
-                            className={`p-1 text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing ${
-                              draggingSortId === item.id ? "cursor-grabbing" : ""
-                            }`}
-                            draggable
-                            onDragStart={(e) => {
-                              e.dataTransfer.setData("text/plain", item.id);
-                              e.dataTransfer.effectAllowed = "move";
-                              setDraggingSortId(item.id);
-                            }}
-                            onDragEnd={() => {
-                              setDraggingSortId(null);
-                              setSortDragOverId(null);
-                            }}
-                            aria-label="Drag to reorder sort"
-                            role="button"
-                          >
-                            <GripVertical className="h-4 w-4" />
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
+                          setLocalSorts(next);
+                          onSortsChange(next, true);
+                        }}
+                      >
+                        <span className="text-[#667085]">
+                          {field.type?.toString().toUpperCase() === "NUMBER" ? "#" : "T"}
+                        </span>
+                        <span className="flex-1 text-[#111827]">{field.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="px-3 py-2 text-[13px] text-gray-700 flex items-center justify-between border-b">
+                  <span className="font-medium text-gray-800">Sort by</span>
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1 text-gray-800 hover:underline"
+                    className="p-1 rounded hover:bg-gray-100"
+                    onClick={() => setSortOpen(false)}
+                    aria-label="Close sort menu"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="px-4 py-3 space-y-3 text-[13px] text-[#3c4a62]">
+                  <div className="space-y-2">
+                    {localSorts.items.map((item) => {
+                      const fieldForItem =
+                        orderedFields.find((f) => f.id === item.fieldId) ?? orderedFields[0];
+                      const isNumber = (fieldForItem?.type ?? "").toString().toUpperCase() === "NUMBER";
+                      return (
+                        <div
+                          key={item.id}
+                          className={`flex items-center gap-2 rounded px-1 ${
+                            sortDragOverId === item.id ? "ring-1 ring-orange-300 bg-orange-50" : ""
+                          } ${draggingSortId === item.id ? "opacity-70" : ""}`}
+                          onDragOver={(e) => {
+                            if (!draggingSortId || draggingSortId === item.id || localSorts.items.length < 2) return;
+                            e.preventDefault();
+                            setSortDragOverId(item.id);
+                          }}
+                          onDragLeave={() => {
+                            if (sortDragOverId === item.id) setSortDragOverId(null);
+                          }}
+                          onDrop={(e) => {
+                            if (!draggingSortId || localSorts.items.length < 2) return;
+                            e.preventDefault();
+                            const sourceId = e.dataTransfer.getData("text/plain") || draggingSortId;
+                            handleSortReorder(sourceId, item.id);
+                            setSortDragOverId(null);
+                            setDraggingSortId(null);
+                          }}
+                        >
+                          <select
+                            value={item.fieldId}
+                            onChange={(e) => {
+                              const next: SortState = {
+                                ...localSorts,
+                                items: localSorts.items.map((s) =>
+                                  s.id === item.id ? { ...s, fieldId: e.target.value } : s,
+                                ),
+                              };
+                              setLocalSorts(next);
+                              if (localSorts.auto) onSortsChange(next, true);
+                            }}
+                            className="h-9 flex-1 rounded border border-[#d9dde8] px-3 py-1 text-[#111827] focus:border-[#2557e0] focus:outline-none focus:ring-0"
+                          >
+                            {orderedFields.map((field) => (
+                              <option key={field.id} value={field.id}>
+                                {field.name}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            value={item.direction}
+                            onChange={(e) => {
+                              const next: SortState = {
+                                ...localSorts,
+                                items: localSorts.items.map((s) =>
+                                  s.id === item.id ? { ...s, direction: e.target.value as "asc" | "desc" } : s,
+                                ),
+                              };
+                              setLocalSorts(next);
+                              if (localSorts.auto) onSortsChange(next, true);
+                            }}
+                            className="h-9 min-w-[120px] rounded border border-[#d9dde8] px-3 py-1 text-[#111827] focus:border-[#2557e0] focus:outline-none focus:ring-0"
+                          >
+                            {isNumber ? (
+                              <>
+                                <option value="asc">Small → Large</option>
+                                <option value="desc">Large → Small</option>
+                              </>
+                            ) : (
+                              <>
+                                <option value="asc">A → Z</option>
+                                <option value="desc">Z → A</option>
+                              </>
+                            )}
+                          </select>
+                          <button
+                            type="button"
+                            className="flex h-9 w-9 items-center justify-center rounded hover:bg-gray-100 text-[#98a2b3]"
+                            aria-label="Remove sort"
+                            onClick={() => {
+                              const next: SortState = {
+                                ...localSorts,
+                                items: localSorts.items.filter((s) => s.id !== item.id),
+                              };
+                              setLocalSorts(next);
+                              const shouldCommit = localSorts.auto || next.items.length === 0;
+                              if (shouldCommit) onSortsChange(next, shouldCommit);
+                            }}
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                          {localSorts.items.length > 1 && (
+                            <span
+                              className={`flex h-9 w-9 items-center justify-center text-[#98a2b3] hover:text-[#344054] cursor-grab active:cursor-grabbing ${
+                                draggingSortId === item.id ? "cursor-grabbing" : ""
+                              }`}
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.setData("text/plain", item.id);
+                                e.dataTransfer.effectAllowed = "move";
+                                setDraggingSortId(item.id);
+                              }}
+                              onDragEnd={() => {
+                                setDraggingSortId(null);
+                                setSortDragOverId(null);
+                              }}
+                              aria-label="Drag to reorder sort"
+                              role="button"
+                            >
+                              <GripVertical className="h-4 w-4" />
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 text-[#98a2b3] hover:text-[#344054]"
                     onClick={() => {
                       const field = orderedFields[0];
                       if (!field) return;
@@ -701,70 +808,62 @@ export default function TableToolbar({
                       if (localSorts.auto) onSortsChange(next, true);
                     }}
                   >
-                    <span className="font-bold text-gray-900">+</span> Add another sort
+                    <span className="text-lg leading-none">+</span>
+                    <span>Add another sort</span>
                   </button>
                 </div>
-              )}
-            </div>
 
-            <div className="border-t px-3 py-2 space-y-2">
-              <label className="flex items-center gap-2 text-[13px] text-gray-800">
-                <input
-                  type="checkbox"
-                  checked={localSorts.auto}
-                  onChange={(e) => {
-                const next: SortState = { ...localSorts, auto: e.target.checked };
-                    setLocalSorts(next);
-                    onSortsChange(next, next.auto);
-                  }}
-                  className="rounded border-[#d9dde8] text-blue-600"
-                />
-                Automatically sort records
-              </label>
-
-              {!localSorts.auto && (
-                <div className="flex justify-end">
+                <div className="mt-1 bg-[#f7f9fb] px-4 py-3">
                   <button
                     type="button"
-                    className="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 text-[13px]"
-                    onClick={() => onSortsChange(localSorts, true)}
+                    className="flex items-center gap-3 text-[13px] text-[#111827]"
+                    onClick={() => {
+                      const next: SortState = { ...localSorts, auto: !localSorts.auto };
+                      setLocalSorts(next);
+                      onSortsChange(next, next.auto);
+                    }}
                   >
-                    Sort
+                    <span
+                      className={`h-4 w-8 rounded-full transition-colors duration-150 ${
+                        localSorts.auto ? "bg-emerald-600" : "bg-gray-300"
+                      }`}
+                    >
+                      <span
+                        className={`block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-150 ${
+                          localSorts.auto ? "translate-x-4" : "translate-x-0"
+                        }`}
+                      />
+                    </span>
+                    <span>Automatically sort records</span>
                   </button>
                 </div>
-              )}
-            </div>
+              </>
+            )}
           </div>
         )}
 
         {filterOpen && (
           <div
             ref={filterRef}
-            className="absolute left-0 top-full mt-2 z-40 w-[480px] max-w-[95vw] rounded-lg border border-[#e6e8ef] bg-white shadow-xl"
+            className="absolute left-0 top-full mt-2 z-40 w-[540px] max-w-[95vw] rounded-xl border border-[#e6e8ef] bg-white shadow-xl"
           >
-            <div className="px-4 py-3 text-[13px] text-gray-700 border-b flex items-center justify-between">
-              <span className="font-medium text-gray-800">In this view, show records</span>
-              <button
-                type="button"
-                className="p-1 rounded hover:bg-gray-100"
-                onClick={() => setFilterOpen(false)}
-                aria-label="Close filter menu"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+            {localFilters.conditions.length > 0 && (
+              <div className="px-4 pt-3 text-[13px] text-[#6b7280]">
+                In this view, show records
+              </div>
+            )}
 
-            <div className="px-4 py-3 text-[13px] text-gray-700 space-y-3 max-h-96 overflow-y-auto">
+            <div className="px-4 py-3 text-[13px] text-[#3c4a62] space-y-2">
               {localFilters.conditions.length === 0 ? (
-                <div className="text-gray-500">No filter conditions are applied</div>
+                <div className="text-[#8b93a3]">No filter conditions are applied</div>
               ) : (
                 <div className="space-y-2">
                   {localFilters.conditions.map((condition, idx) => (
                     <div
                       key={condition.id}
-                      className={`flex items-center gap-1 rounded px-1 transition-all duration-150 ${
-                        filterDragOverId === condition.id ? "ring-1 ring-emerald-300 bg-emerald-50 translate-y-[1px]" : ""
-                      } ${draggingFilterId === condition.id ? "opacity-70 cursor-grabbing" : ""}`}
+                        className={`flex items-center gap-2 rounded px-1 py-1 transition-colors flex-nowrap ${
+                          filterDragOverId === condition.id ? "bg-[#f5f8ff]" : ""
+                        } ${draggingFilterId === condition.id ? "opacity-70 cursor-grabbing" : ""}`}
                       onDragOver={(e) => {
                         if (!draggingFilterId || draggingFilterId === condition.id || localFilters.conditions.length < 2) return;
                         e.preventDefault();
@@ -782,11 +881,9 @@ export default function TableToolbar({
                         setDraggingFilterId(null);
                       }}
                     >
-                      <div className="flex items-center gap-1 min-w-[110px]">
+                      <div className="flex items-center justify-start w-16 min-w-[64px]">
                         {idx === 0 ? (
-                          <>
-                            <span className="text-gray-600">Where</span>
-                          </>
+                          <span className="text-[#5f6b7a]">Where</span>
                         ) : (
                           localFilters.conditions.length > 1 && (
                             <select
@@ -798,7 +895,7 @@ export default function TableToolbar({
                                 };
                                 commitFilters(next);
                               }}
-                              className="rounded border border-[#d9dde8] px-2 py-1 text-gray-800 focus:border-[#2557e0] focus:outline-none focus:ring-2 focus:ring-[#2557e0]/20"
+                              className="w-16 rounded border border-[#d9dde8] px-2 py-1 text-[#111827] focus:border-[#2557e0] focus:outline-none focus:ring-2 focus:ring-[#2557e0]/20"
                             >
                               <option value="and">and</option>
                               <option value="or">or</option>
@@ -807,121 +904,124 @@ export default function TableToolbar({
                         )}
                       </div>
 
-                      <div className="flex flex-1 items-center gap-1 rounded border border-[#e6e8ef] px-1 py-2 bg-white min-w-0">
-                        {(() => {
-                          const fieldForCondition = orderedFields.find((f) => f.id === condition.fieldId);
-                          const operatorOptions = operatorOptionsForField(fieldForCondition);
-                          const selectValue =
-                            operatorOptions.some((o) => o.value === condition.operator)
-                              ? condition.operator
-                              : operatorOptions[0]?.value ?? "contains";
-                          return (
-                            <>
-                        <select
-                          value={condition.fieldId}
-                          onChange={(e) => {
-                            const nextFieldId = e.target.value;
-                            const nextField = orderedFields.find((f) => f.id === nextFieldId);
-                            const optionsForNext = operatorOptionsForField(nextField);
-                            const nextOperator =
-                              optionsForNext.find((o) => o.value === condition.operator)?.value ??
-                              optionsForNext[0]?.value ??
-                              "contains";
-                            const next = {
-                              ...localFilters,
-                              conditions: localFilters.conditions.map((c) =>
-                                c.id === condition.id
-                                  ? { ...c, fieldId: nextFieldId, operator: nextOperator }
-                                  : c,
-                              ),
-                            };
-                            commitFilters(next);
-                          }}
-                          className="min-w-[80px] rounded border border-[#d9dde8] px-2 py-1 text-gray-800 focus:border-[#2557e0] focus:outline-none focus:ring-2 focus:ring-[#2557e0]/20"
-                        >
-                          {orderedFields.map((field) => (
-                            <option key={field.id} value={field.id}>
-                              {field.name}
-                            </option>
-                          ))}
-                        </select>
+                      <div className="flex flex-1 items-center gap-0 min-w-0">
+                        <div className="flex flex-1 items-center divide-x divide-[#d9dde8] overflow-hidden rounded border border-[#d9dde8] h-8">
+                          {(() => {
+                            const fieldForCondition = orderedFields.find((f) => f.id === condition.fieldId);
+                            const operatorOptions = operatorOptionsForField(fieldForCondition);
+                            const selectValue =
+                              operatorOptions.some((o) => o.value === condition.operator)
+                                ? condition.operator
+                                : operatorOptions[0]?.value ?? "contains";
+                            return (
+                              <>
+                                <select
+                                  value={condition.fieldId}
+                                  onChange={(e) => {
+                                    const nextFieldId = e.target.value;
+                                    const nextField = orderedFields.find((f) => f.id === nextFieldId);
+                                    const optionsForNext = operatorOptionsForField(nextField);
+                                    const nextOperator =
+                                      optionsForNext.find((o) => o.value === condition.operator)?.value ??
+                                      optionsForNext[0]?.value ??
+                                      "contains";
+                                    const next = {
+                                      ...localFilters,
+                                      conditions: localFilters.conditions.map((c) =>
+                                        c.id === condition.id
+                                          ? { ...c, fieldId: nextFieldId, operator: nextOperator }
+                                          : c,
+                                      ),
+                                    };
+                                    commitFilters(next);
+                                  }}
+                                  className="w-[120px] min-w-[110px] px-3 py-1.5 text-[13px] text-[#111827] focus:border-none focus:outline-none"
+                                >
+                                  {orderedFields.map((field) => (
+                                    <option key={field.id} value={field.id}>
+                                      {field.name}
+                                    </option>
+                                  ))}
+                                </select>
 
-                        <select
-                          value={selectValue}
-                            onChange={(e) => {
-                              const nextOperator = e.target.value as Operator;
-                              const nextConditions = localFilters.conditions.map((c) =>
-                                c.id === condition.id
-                                  ? {
-                                    ...c,
-                                    operator: nextOperator,
-                                    value:
-                                      nextOperator === "is_empty" || nextOperator === "is_not_empty"
-                                        ? ""
-                                        : c.value,
-                                  }
-                                : c,
+                                <select
+                                  value={selectValue}
+                                  onChange={(e) => {
+                                    const nextOperator = e.target.value as Operator;
+                                    const nextConditions = localFilters.conditions.map((c) =>
+                                      c.id === condition.id
+                                        ? {
+                                            ...c,
+                                            operator: nextOperator,
+                                            value:
+                                              nextOperator === "is_empty" || nextOperator === "is_not_empty"
+                                                ? ""
+                                                : c.value,
+                                          }
+                                        : c,
+                                    );
+                                    const next = { ...localFilters, conditions: nextConditions };
+                                    setLocalFilters(next);
+                                    if (nextOperator === "is_empty" || nextOperator === "is_not_empty") {
+                                      commitFilters(next);
+                                    }
+                                  }}
+                                  className="w-[120px] min-w-[110px] px-3 py-1.5 text-[13px] text-[#111827] focus:border-none focus:outline-none"
+                                >
+                                  {operatorOptions.map((opt) => (
+                                    <option key={opt.value} value={opt.value}>
+                                      {opt.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </>
                             );
-                            const next = { ...localFilters, conditions: nextConditions };
-                            setLocalFilters(next);
-                            if (nextOperator === "is_empty" || nextOperator === "is_not_empty") {
-                              commitFilters(next);
+                          })()}
+
+                          <input
+                            type="text"
+                            value={condition.value ?? ""}
+                            onChange={(e) => {
+                              const nextVal = e.target.value;
+                              commitFilters({
+                                connector: localFilters.connector,
+                                conditions: localFilters.conditions.map((c) =>
+                                  c.id === condition.id ? { ...c, value: nextVal } : c,
+                                ),
+                              });
+                            }}
+                            placeholder="Enter a value"
+                            className="w-[170px] min-w-[150px] px-3 py-1.5 text-[13px] text-[#111827] placeholder:text-[#9aa5b5] focus:border-none focus:outline-none"
+                            disabled={
+                              condition.operator === "is_empty" || condition.operator === "is_not_empty"
                             }
-                          }}
-                          className="min-w-[80px] rounded border border-[#d9dde8] px-2 py-1 text-gray-800 focus:border-[#2557e0] focus:outline-none focus:ring-2 focus:ring-[#2557e0]/20"
-                        >
-                          {operatorOptions.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                          </>
-                          );
-                        })()}
+                          />
 
-                        <input
-                          type="text"
-                          value={condition.value ?? ""}
-                          onChange={(e) => {
-                            const nextVal = e.target.value;
-                            commitFilters({
-                              connector: localFilters.connector,
-                              conditions: localFilters.conditions.map((c) =>
-                                c.id === condition.id ? { ...c, value: nextVal } : c,
-                              ),
-                            });
-                          }}
-                          placeholder="Enter a value"
-                          className="min-w-[80px] rounded border border-[#d9dde8] px-2 py-1 text-gray-800 focus:border-[#2557e0] focus:outline-none focus:ring-2 focus:ring-[#2557e0]/20"
-                          disabled={
-                            condition.operator === "is_empty" || condition.operator === "is_not_empty"
-                          }
-                        />
-
-                        <button
-                          type="button"
-                          className="p-1 rounded hover:bg-gray-100 text-gray-600"
-                          aria-label="Delete condition"
-                          onClick={() =>
-                            commitFilters({
-                              connector: localFilters.connector,
-                              conditions: localFilters.conditions.filter((c) => c.id !== condition.id),
-                            })
-                          }
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                        {localFilters.conditions.length > 1 && (
-                        <span
-                          className={`p-1 text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing ${
-                            draggingFilterId === condition.id ? "cursor-grabbing" : ""
-                          }`}
-                          draggable
-                          onDragStart={(e) => {
-                            e.dataTransfer.setData("text/plain", condition.id);
-                            e.dataTransfer.effectAllowed = "move";
-                            setDraggingFilterId(condition.id);
+                          <button
+                            type="button"
+                            className="flex h-full w-9 items-center justify-center bg-white text-[#344054] hover:bg-gray-50"
+                            aria-label="Delete condition"
+                            onClick={() =>
+                              commitFilters({
+                                connector: localFilters.connector,
+                                conditions: localFilters.conditions.filter((c) => c.id !== condition.id),
+                              })
+                            }
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                          <span
+                            className={`flex h-full w-9 items-center justify-center ${
+                              localFilters.conditions.length > 1
+                                ? "text-gray-500 hover:bg-gray-50 cursor-grab active:cursor-grabbing"
+                                : "text-gray-300 cursor-not-allowed"
+                            }`}
+                            draggable={localFilters.conditions.length > 1}
+                            onDragStart={(e) => {
+                              if (localFilters.conditions.length < 2) return;
+                              e.dataTransfer.setData("text/plain", condition.id);
+                              e.dataTransfer.effectAllowed = "move";
+                              setDraggingFilterId(condition.id);
                             }}
                             onDragEnd={() => {
                               setDraggingFilterId(null);
@@ -932,58 +1032,61 @@ export default function TableToolbar({
                           >
                             <GripVertical className="h-4 w-4" />
                           </span>
-                        )}
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
+            </div>
 
-              <div className="flex items-center gap-4 pt-1 text-[13px] text-gray-700">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 text-gray-800 hover:underline"
-                  onClick={() => {
-                    const defaultField = orderedFields[0];
-                    if (!defaultField) return;
-                    setLocalFilters((prev) => ({
-                      ...prev,
-                      conditions: [
-                        ...prev.conditions,
-                        {
-                          id: `cond-${Date.now()}`,
-                          fieldId: defaultField.id,
-                          operator: defaultField.type === "NUMBER" ? "greater_than" : "contains",
-                          value: "",
-                        },
-                      ],
-                    }));
-                  }}
-                >
-                  <span className="font-bold text-gray-900">+</span> Add condition
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 text-gray-800 hover:underline"
-                  onClick={() => {
-                    const defaultField = orderedFields[0];
-                    if (!defaultField) return;
-                    setLocalFilters({
-                      connector: "and",
-                      conditions: [
-                        {
-                          id: `cond-${Date.now()}`,
-                          fieldId: defaultField.id,
-                          operator: "contains",
-                          value: "",
-                        },
-                      ],
-                    });
-                  }}
-                >
-                  <span className="font-bold text-gray-900">+</span> Add condition group
-                </button>
-              </div>
+            <div className="flex items-center gap-4 px-4 pb-3 text-[13px] text-[#3c4a62]">
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 text-[#3c4a62] hover:underline"
+                onClick={() => {
+                  const defaultField = orderedFields[0];
+                  if (!defaultField) return;
+                  setLocalFilters((prev) => ({
+                    ...prev,
+                    conditions: [
+                      ...prev.conditions,
+                      {
+                        id: `cond-${Date.now()}`,
+                        fieldId: defaultField.id,
+                        operator: defaultField.type === "NUMBER" ? "greater_than" : "contains",
+                        value: "",
+                      },
+                    ],
+                  }));
+                }}
+              >
+                <span className="text-[#8e9bb3]">+</span>
+                <span>Add condition</span>
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 text-[#3c4a62] hover:underline"
+                onClick={() => {
+                  const defaultField = orderedFields[0];
+                  if (!defaultField) return;
+                  setLocalFilters({
+                    connector: "and",
+                    conditions: [
+                      {
+                        id: `cond-${Date.now()}`,
+                        fieldId: defaultField.id,
+                        operator: "contains",
+                        value: "",
+                      },
+                    ],
+                  });
+                }}
+              >
+                <span className="text-[#8e9bb3]">+</span>
+                <span>Add condition group</span>
+              </button>
+              <CircleHelp className="h-4 w-4 text-[#98a2b3]" strokeWidth={1.75} />
             </div>
           </div>
         )}

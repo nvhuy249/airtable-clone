@@ -106,7 +106,7 @@ export default function TableTopBar({
 
   return (
     <>
-      <div className="relative flex h-8 items-center justify-between border-[#e6e8ef] bg-[#f6f7fb] text-[13px]">
+      <div className="relative flex h-8 items-center justify-between border-[#e6e8ef] bg-[#eef0f4] text-[13px]">
         <div className="h-full flex items-center gap-0">
           <div ref={menuWrapperRef} className="h-full relative flex items-center gap-0">
             {tables.map((t) => {
@@ -133,8 +133,8 @@ export default function TableTopBar({
                         e.stopPropagation();
                         setMenuOpen((p) => !p);
                       }}
-                      className="ml-0.5 h-3.5 w-3.5 text-[#667085]"
-                      strokeWidth={1.75}
+                      className="ml-0.5 h-3 w-3 text-[#667085]"
+                      strokeWidth={1.6}
                     />
                   )}
                 </button>
@@ -205,6 +205,16 @@ export default function TableTopBar({
               </div>
             )}
           </div>
+        </div>
+
+        <div className="flex items-center pr-3">
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[#475467] hover:bg-white/60"
+          >
+            <span>Tools</span>
+            <ChevronDown className="h-3 w-3 text-[#667085]" strokeWidth={1.75} />
+          </button>
         </div>
       </div>
 

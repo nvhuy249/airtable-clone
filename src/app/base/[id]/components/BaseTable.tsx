@@ -977,7 +977,11 @@ export default function BaseTable({
 
     const rowNumberCol: ColumnDef<RowData, ColumnValue> = {
       id: "rowNumber",
-      header: "",
+      header: () => (
+        <div className="flex h-full items-center justify-center pl-2">
+          <div className="h-3.5 w-3.5 rounded-[4px] border border-[#cdd3de] bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" />
+        </div>
+      ),
       cell: ({ row }) => {
         const recordId = row.original.__recordId;
         const absoluteIndex = row.original.__rowIndex ?? row.index;
@@ -1152,10 +1156,10 @@ export default function BaseTable({
   const widthClass = (columnId: string) => {
     const isRowNumber = columnId === "rowNumber";
     const isAddField = columnId === "addField";
-    if (isRowNumber || isAddField) return "w-[44px] min-w-[44px] text-center";
+    if (isRowNumber || isAddField) return "w-[56px] min-w-[56px] text-center";
     const field = fieldLookup[columnId];
     const isNumber = field?.type?.toString().toUpperCase() === "NUMBER";
-    return isNumber ? "w-[120px] min-w-[120px]" : "w-[180px] min-w-[180px]";
+    return isNumber ? "w-[180px] min-w-[180px]" : "w-[180px] min-w-[180px]";
   };
 
   const firstDataColumnId = visibleColumnOrder[0];
@@ -1195,25 +1199,14 @@ export default function BaseTable({
     }
   }, [contextMenu]);
 
-  const loadedCount = records?.length ?? 0;
   const formatNumber = useCallback((n: number) => n.toLocaleString(), []);
   const totalLabel = totalCount ? formatNumber(totalCount) : null;
-  const loadedLabel = formatNumber(loadedCount);
-  const statusText = isLoading
-    ? "Loading records..."
-    : totalLabel
-      ? hasMore
-        ? `Loaded ${loadedLabel} / ${totalLabel} records`
-        : `Showing ${loadedLabel} of ${totalLabel} records`
-      : hasMore
-        ? `Loaded ${loadedLabel}`
-        : `Showing ${loadedLabel}`;
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden" ref={tableWrapperRef}>
       {/* ACTUAL TABLE */}
       <div
-        className="relative flex-1 overflow-auto bg-[#f6f7fb]"
+        className="relative flex-1 overflow-auto bg-[#f9fafc]"
         ref={scrollContainerRef}
         onScroll={(e) => {
           const scrollTop = e.currentTarget.scrollTop;
@@ -1223,6 +1216,7 @@ export default function BaseTable({
         }}
       >
         <div className="pointer-events-none absolute top-0 bottom-0 left-[224px] w-px bg-[#e6e8ef] z-0" />
+        <div className="pointer-events-none absolute top-0 left-0 right-0 h-8 bg-white z-0" />
         {isLoading && (
           <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
             <div className="h-9 w-9 animate-spin rounded-full border-2 border-[#cfd4de] border-t-[#1b6ef3]" />
@@ -1358,7 +1352,7 @@ export default function BaseTable({
                         key={cell.id}
                         className={
                           cell.column.id === "addField"
-                            ? `${widthClass(cell.column.id)} ${stickyClass(cell.column.id)} bg-[#f6f7fb] p-0 border-0`
+                            ? `${widthClass(cell.column.id)} ${stickyClass(cell.column.id)} bg-[#f9fafc] p-0 border-0`
                             : `border-b ${cell.column.id === "rowNumber" ? "" : "border-r"} border-[#e6e8ef] align-middle ${widthClass(cell.column.id)} ${stickyClass(cell.column.id)}`
                         }
                       >
@@ -1379,7 +1373,7 @@ export default function BaseTable({
               );
             })}
             <tr>
-              <td colSpan={table.getVisibleLeafColumns().length} className="p-0 border-0 bg-[#f6f7fb]">
+              <td colSpan={table.getVisibleLeafColumns().length} className="p-0 border-0 bg-[#f9fafc]">
                 <div
                   className="relative w-full"
                   style={{ height: Math.max(bottomSpacerHeight, hasMore || isFetchingMore ? 24 : 0) }}
@@ -1401,7 +1395,7 @@ export default function BaseTable({
                   key={`add-row-${column.id}`}
                   className={
                     column.id === "addField"
-                      ? `${widthClass(column.id)} ${stickyClass(column.id)} bg-[#f6f7fb] p-0 border-0`
+                      ? `${widthClass(column.id)} ${stickyClass(column.id)} bg-[#f9fafc] p-0 border-0`
                       : `border-b ${column.id === "rowNumber" ? "" : "border-r"} border-[#e6e8ef] align-middle ${widthClass(column.id)} ${stickyClass(column.id)}`
                   }
                 >
@@ -1429,7 +1423,9 @@ export default function BaseTable({
       <div
         className="sticky bottom-0 left-0 right-0 z-20 flex h-9 items-center justify-between border-t border-[#e6e8ef] bg-white px-4 text-[12px] text-[#667085]"
       >
-        <div>{statusText}</div>
+        <div>
+          {totalLabel ? `${totalLabel} records` : "0 record"}
+        </div>
       </div>
 
       {addFieldMenuOpen && addFieldAnchor && (

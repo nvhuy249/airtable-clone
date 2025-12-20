@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useRef, useEffect, useCallback } from "react";
-import { GripVertical, MoreVertical, Plus, Search, Star, Trash2 } from "lucide-react";
+import { GripVertical, MoreVertical, Plus, Search, Star, Trash2, Pencil, Copy } from "lucide-react";
 import { GridViewIcon } from "./icons/GridViewIcon";
 
 type ViewSidebarProps = {
@@ -130,7 +130,7 @@ export default function ViewSidebar({
           setCreateMenuOpen(false);
         }}
       >
-              <GridViewIcon className="h-3.5 w-3.5 text-[#1b6ef3]" />
+              <GridViewIcon className="h-4 w-4 text-[#1b6ef3]" />
               <div className="flex flex-col">
                 <span className="font-medium">Grid</span>
                 <span className="text-[12px] text-gray-500">Default table view</span>
@@ -151,7 +151,7 @@ export default function ViewSidebar({
                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-gray-400"
                 title="Coming soon"
               >
-                <GridViewIcon className="h-3.5 w-3.5 text-[#1b6ef3]" />
+                <GridViewIcon className="h-4 w-4 text-[#1b6ef3]" />
                 <span>{label}</span>
               </div>
             ))}
@@ -179,7 +179,7 @@ export default function ViewSidebar({
           return (
             <div
               key={view.id}
-              className="px-0 group"
+              className="px-2 group"
               onDragOver={(e) => {
                 if (!draggingViewId || draggingViewId === view.id) return;
                 e.preventDefault();
@@ -201,7 +201,7 @@ export default function ViewSidebar({
                 <div
                   role="button"
                   tabIndex={0}
-                  className={`relative flex h-9 w-full items-center justify-between px-3 text-[13px] transition-all duration-150 ${
+                  className={`relative rounded-sm flex h-9 w-full items-center justify-between px-3 text-[13px] transition-all duration-150 ${
                     isActive
                       ? "bg-[#eef2f7] font-medium text-[#111827]"
                       : "text-[#475467] hover:bg-[#f6f7fb]"
@@ -221,7 +221,7 @@ export default function ViewSidebar({
                 >
                   <span className="flex items-center gap-2">
                     <div className="relative h-4 w-4">
-                      <GridViewIcon className="h-3.5 w-3.5 text-[#1b6ef3] group-hover:hidden" />
+                      <GridViewIcon className="h-4 w-4 text-[#1b6ef3] group-hover:hidden" />
                       <Star className="absolute inset-0 hidden h-3.5 w-3.5 text-[#667085] group-hover:inline" strokeWidth={1.75} />
                     </div>
                     {editingViewId === view.id ? (
@@ -292,55 +292,56 @@ export default function ViewSidebar({
       {contextMenu.viewId && (
         <div
           ref={contextMenuRef}
-          className="fixed z-50 w-56 rounded-lg border border-[#e6e8ef] bg-white shadow-xl"
+          className="fixed z-50 w-64 rounded-xl border border-[#d9dde3] bg-white shadow-xl"
           style={{ top: contextMenu.y + 4, left: contextMenu.x + 4 }}
         >
           <button
             type="button"
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-gray-50 text-gray-800"
+            className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-[13px] text-[#111827] hover:bg-[#f5f7fb]"
             onClick={() => {
               // Favorites stub
               setContextMenu({ viewId: null, x: 0, y: 0 });
             }}
           >
-            <span className="text-gray-500">★</span>
-            <span>Add to favourites</span>
+            <Star className="h-4 w-4 text-[#667085]" strokeWidth={1.4} />
+            <span className="flex-1">Add to "My favorites"</span>
+            <span className="rounded-full bg-[#e8f1ff] px-2 py-0.5 text-[12px] text-[#2b6ff7]">Team</span>
           </button>
-          <div className="border-t" />
+          <div className="mx-5 my-2 h-px bg-[#ebeef3] rounded-full" />
           <button
             type="button"
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-gray-50 text-gray-800"
+            className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-[13px] text-[#111827] hover:bg-[#f5f7fb]"
             onClick={() => {
               if (contextMenu.viewId) {
-                    const currentName = views.find((v) => v.id === contextMenu.viewId)?.name ?? "";
-                    startEditing(contextMenu.viewId, currentName);
-                  }
-                  setContextMenu({ viewId: null, x: 0, y: 0 });
-                }}
+                const currentName = views.find((v) => v.id === contextMenu.viewId)?.name ?? "";
+                startEditing(contextMenu.viewId, currentName);
+              }
+              setContextMenu({ viewId: null, x: 0, y: 0 });
+            }}
           >
-            <span className="text-gray-500">✎</span>
+            <Pencil className="h-4 w-4 text-[#667085]" strokeWidth={1.4} />
             <span>Rename view</span>
           </button>
           <button
             type="button"
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-gray-50 text-gray-800"
+            className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-[13px] text-[#111827] hover:bg-[#f5f7fb]"
             onClick={() => {
               if (contextMenu.viewId) onDuplicateViewAction?.(contextMenu.viewId);
               setContextMenu({ viewId: null, x: 0, y: 0 });
             }}
           >
-            <span className="text-gray-500">⧉</span>
+            <Copy className="h-4 w-4 text-[#667085]" strokeWidth={1.4} />
             <span>Duplicate view</span>
           </button>
           <button
             type="button"
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-red-50 text-red-600"
+            className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-[13px] text-[#d46a7a] hover:bg-[#fff5f5]"
             onClick={() => {
               if (contextMenu.viewId) onDeleteViewAction?.(contextMenu.viewId);
               setContextMenu({ viewId: null, x: 0, y: 0 });
             }}
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            <Trash2 className="h-3.5 w-3.5" strokeWidth={1.4} />
             <span>Delete view</span>
           </button>
         </div>
