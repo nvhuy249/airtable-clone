@@ -557,7 +557,7 @@ function BaseClientContent({
     if (shouldForceHydrate) {
       forceHydrateViewRef.current = false;
     }
-  }, [activeView, filters, globalSearch, hiddenFieldIds, serializeHidden, serializeSorts]);
+  }, [activeView, appliedSorts, filters, globalSearch, hiddenFieldIds, serializeHidden, serializeSorts]);
 
   useEffect(() => {
     return () => {
@@ -606,7 +606,7 @@ function BaseClientContent({
     return () => window.removeEventListener("beforeunload", handler);
   }, [logQueueSnapshot]);
 
-const persistViewConfig = useCallback(
+  const persistViewConfig = useCallback(
     (overrides?: {
       filters?: { connector: "and" | "or"; conditions: FilterCondition[] };
       sorts?: SortItem[];
@@ -628,7 +628,7 @@ const persistViewConfig = useCallback(
       shouldRefetchRecordsRef.current = !(options?.skipRecordRefresh ?? false);
       updateView.mutate({ viewId: activeViewId, config: nextConfig });
     },
-    [activeViewId, buildViewConfig, serializeFilters, serializeHidden, serializeSorts, updateView],
+    [activeViewId, buildViewConfig, serializeHidden, serializeSorts, updateView],
   );
 
   const schedulePersistHidden = useCallback(

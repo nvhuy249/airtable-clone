@@ -304,7 +304,7 @@ export default function ViewSidebar({
             }}
           >
             <Star className="h-4 w-4 text-[#667085]" strokeWidth={1.4} />
-            <span className="flex-1">Add to "My favorites"</span>
+            <span className="flex-1">Add to &quot;My favorites&quot;</span>
             <span className="rounded-full bg-[#e8f1ff] px-2 py-0.5 text-[12px] text-[#2b6ff7]">Team</span>
           </button>
           <div className="mx-5 my-2 h-px bg-[#ebeef3] rounded-full" />

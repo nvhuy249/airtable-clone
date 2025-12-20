@@ -1,7 +1,22 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
-import { FiHelpCircle, FiMenu, FiSearch } from "react-icons/fi";
-import { FiUser, FiSettings, FiLogOut } from "react-icons/fi";
+import {
+  FiBell,
+  FiMenu,
+  FiSearch,
+  FiUser,
+  FiUsers,
+  FiGlobe,
+  FiSun,
+  FiChevronRight,
+  FiMail,
+  FiArrowUpCircle,
+  FiSend,
+  FiZap,
+  FiBox,
+  FiTrash2,
+} from "react-icons/fi";
+import { FiLogOut } from "react-icons/fi";
 import { signOut } from "next-auth/react";
 import type { Session } from "next-auth";
 
@@ -34,10 +49,40 @@ export default function Topbar({ user, onToggleSidebar }: TopbarProps) {
     user?.email?.charAt(0)?.toUpperCase() ??
     "U";
 
+  const closeMenu = () => setMenuOpen(false);
+
+  const MenuRow = ({
+    icon,
+    label,
+    right,
+    onClick,
+    danger,
+  }: {
+    icon: React.ReactNode;
+    label: string;
+    right?: React.ReactNode;
+    onClick?: () => void;
+    danger?: boolean;
+  }) => (
+    <button
+      type="button"
+      className={`flex w-full items-center gap-3 px-4 py-2 text-left text-[13px] hover:bg-[#f4f6fb] ${
+        danger ? "text-red-600" : "text-[#1f2933]"
+      }`}
+      onClick={() => {
+        onClick?.();
+      }}
+    >
+      <span className="text-[#4b5563] text-[15px]">{icon}</span>
+      <span className="flex-1">{label}</span>
+      {right}
+    </button>
+  );
+
   return (
-    <header className="fixed top-0 left-0 right-0 h-[64px] border-b border-[#e6e8eb] bg-white flex items-center px-4 justify-between z-40">
+    <header className="fixed top-0 left-0 right-0 h-[56px] border-b border-[#e6e8eb] bg-white shadow-sm flex items-center px-2 justify-between z-40">
       {/* left: menu + logo */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-1">
         <button
           onClick={onToggleSidebar}
           className="p-2 rounded-md hover:bg-[#f2f4f7] transition border border-transparent hover:border-[#e6e8eb]"
@@ -52,7 +97,7 @@ export default function Topbar({ user, onToggleSidebar }: TopbarProps) {
           height={34}
           priority
         />
-        <span className="text-lg font-semibold">Airtable</span>
+        <span className="text-lg font-bold">Airtable</span>
       </div>
 
       {/* center search */}
@@ -68,58 +113,98 @@ export default function Topbar({ user, onToggleSidebar }: TopbarProps) {
 
       {/* right */}
       <div className="flex items-center gap-6">
-        <FiHelpCircle className="text-[20px] text-[#6b7280]" />
+        <FiBell className="text-[20px] text-[#6b7280]" />
         <div className="relative" ref={menuRef}>
           <button
             ref={buttonRef}
             onClick={() => setMenuOpen((p) => !p)}
-            className="flex items-center justify-center h-10 w-10 rounded-full border border-[#e6e8eb] bg-white hover:shadow-sm transition"
+            className="flex items-center justify-center h-7 w-7 rounded-full border border-[#e6e8eb] bg-white hover:shadow-sm transition"
             aria-label="User menu"
           >
             {user?.image ? (
               <Image
                 src={user.image}
                 alt="avatar"
-                width={36}
-                height={36}
-                className="h-9 w-9 rounded-full object-cover"
+                width={24}
+                height={24}
+                className="h-7 w-7 rounded-full object-cover"
               />
             ) : (
               <span className="text-sm font-semibold text-gray-700">{userInitial}</span>
             )}
           </button>
           {menuOpen && (
-            <div className="absolute right-0 mt-2 w-64 rounded-xl border border-[#e6e8eb] bg-white shadow-xl text-sm text-[#1f2933] overflow-hidden">
+            <div className="absolute right-0 mt-2 w-[280px] rounded-2xl border border-[#e6e8eb] bg-white shadow-xl text-sm text-[#1f2933] overflow-hidden">
               <div className="px-4 py-3 border-b border-[#e6e8eb]">
-                <div className="font-semibold text-[#1f2933]">{user?.name ?? "Account"}</div>
-                <div className="text-[12px] text-[#6b7280] truncate">{user?.email ?? "Signed in"}</div>
+                <div className="font-semibold text-[#1f2933] text-[14px]">
+                  {user?.name ?? "Account"}
+                </div>
+                <div className="text-[12px] text-[#6b7280] truncate">
+                  {user?.email ?? "Signed in"}
+                </div>
               </div>
-              <div className="flex flex-col">
-                <button
-                  className="flex items-center gap-3 px-4 py-2 hover:bg-[#f2f4f7] text-left"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  <FiUser className="text-[#6b7280]" />
-                  <span>Account</span>
-                </button>
-                <button
-                  className="flex items-center gap-3 px-4 py-2 hover:bg-[#f2f4f7] text-left"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  <FiSettings className="text-[#6b7280]" />
-                  <span>Settings</span>
-                </button>
-                <div className="border-t border-[#e6e8eb] my-1" />
-                <button
-                  className="flex items-center gap-3 px-4 py-2 hover:bg-[#f2f4f7] text-left text-red-600"
+
+              <div className="border-b border-[#e6e8eb]">
+                <MenuRow icon={<FiUser />} label="Account" onClick={closeMenu} />
+                <MenuRow
+                  icon={<FiUsers />}
+                  label="Manage groups"
+                  right={
+                    <span className="px-2 py-0.5 rounded-full bg-[#e8f2fd] text-[#1d6fdc] text-[12px]">
+                      Business
+                    </span>
+                  }
+                  onClick={closeMenu}
+                />
+                <MenuRow
+                  icon={<FiBell />}
+                  label="Notification preferences"
+                  right={<FiChevronRight className="text-[#9ca3af]" />}
+                  onClick={closeMenu}
+                />
+                <MenuRow
+                  icon={<FiGlobe />}
+                  label="Language preferences"
+                  right={<FiChevronRight className="text-[#9ca3af]" />}
+                  onClick={closeMenu}
+                />
+                <MenuRow
+                  icon={<FiSun />}
+                  label="Appearance"
+                  right={
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-full bg-[#fef3d8] text-[#b7791f] text-[11px]">
+                        Beta
+                      </span>
+                      <FiChevronRight className="text-[#9ca3af]" />
+                    </div>
+                  }
+                  onClick={closeMenu}
+                />
+              </div>
+
+              <div className="border-b border-[#e6e8eb]">
+                <MenuRow icon={<FiMail />} label="Contact sales" onClick={closeMenu} />
+                <MenuRow icon={<FiArrowUpCircle />} label="Upgrade" onClick={closeMenu} />
+                <MenuRow icon={<FiSend />} label="Tell a friend" onClick={closeMenu} />
+              </div>
+
+              <div className="border-b border-[#e6e8eb]">
+                <MenuRow icon={<FiZap />} label="Integrations" onClick={closeMenu} />
+                <MenuRow icon={<FiBox />} label="Builder hub" onClick={closeMenu} />
+              </div>
+
+              <div>
+                <MenuRow icon={<FiTrash2 />} label="Trash" onClick={closeMenu} />
+                <MenuRow
+                  icon={<FiLogOut />}
+                  label="Log out"
+                  danger
                   onClick={() => {
-                    setMenuOpen(false);
+                    closeMenu();
                     void signOut();
                   }}
-                >
-                  <FiLogOut className="text-red-600" />
-                  <span>Log out</span>
-                </button>
+                />
               </div>
             </div>
           )}

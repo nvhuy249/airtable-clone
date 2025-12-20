@@ -9,10 +9,8 @@ import {
   Menu,
   Plus,
   Search,
-  Eye,
   X,
   Trash2,
-  MoreVertical,
   CircleHelp,
 } from "lucide-react";
 import { GridViewIcon } from "./icons/GridViewIcon";
