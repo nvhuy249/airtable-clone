@@ -85,6 +85,7 @@ type PersistedState = {
 };
 
 const buildStorageKey = (baseId: string) => `airtable:last-state:${baseId}`;
+const buildPendingEditsStorageKey = (tableId: string) => `airtable:pending-edits:${tableId}`;
 
 const normalizeAndSortViews = <T extends { id: string; order?: number }>(views: T[]) =>
   [...views]
@@ -137,6 +138,9 @@ function BaseClientContent({
   const lastFiltersByViewRef = useRef<Record<string, string>>({});
   const lastHiddenByViewRef = useRef<Record<string, string>>({});
   const lastSortsByViewRef = useRef<Record<string, string>>({});
+  const dirtyCellKeysRef = useRef<Set<string>>(new Set());
+  const pendingEditPersistHandleRef = useRef<number | null>(null);
+  const hydratedPendingEditsRef = useRef<Set<string>>(new Set());
   const hiddenPersistHandleRef = useRef<number | null>(null);
   const sortPersistHandleRef = useRef<number | null>(null);
   const forceHydrateViewRef = useRef(false);
@@ -187,6 +191,54 @@ function BaseClientContent({
     },
     [logPendingState],
   );
+
+  const normalizeLocalValue = useCallback(
+    (val: string | number | null | undefined) =>
+      val === null || val === undefined ? null : typeof val === "number" ? val : String(val),
+    [],
+  );
+
+  const persistLocalEditsToStorage = useCallback((tableId?: string) => {
+    if (typeof window === "undefined") return;
+    const targetTableId = tableId ?? activeTableId;
+    if (!targetTableId) return;
+    const storageKey = buildPendingEditsStorageKey(targetTableId);
+    const payload: { recordId: string; fieldId: string; value: string | number | null }[] = [];
+    dirtyCellKeysRef.current.forEach((key) => {
+      const [recordId, fieldId] = key.split(":");
+      if (!recordId || !fieldId) return;
+      if (isOptimisticRecordId(recordId) || isOptimisticFieldId(fieldId)) {
+        // Optimistic IDs can't be restored after a hard refresh because the mapping is lost.
+        dirtyCellKeysRef.current.delete(key);
+        return;
+      }
+      payload.push({
+        recordId,
+        fieldId,
+        value: normalizeLocalValue(lastLocalCellValueRef.current.get(key)),
+      });
+    });
+    try {
+      if (payload.length === 0) {
+        window.localStorage.removeItem(storageKey);
+        return;
+      }
+      window.localStorage.setItem(storageKey, JSON.stringify(payload));
+    } catch {
+      // Ignore storage errors (e.g., disabled storage or quota).
+    }
+  }, [activeTableId, normalizeLocalValue]);
+
+  const schedulePersistLocalEdits = useCallback(() => {
+    const targetTableId = activeTableId;
+    if (pendingEditPersistHandleRef.current) {
+      window.clearTimeout(pendingEditPersistHandleRef.current);
+    }
+    pendingEditPersistHandleRef.current = window.setTimeout(() => {
+      pendingEditPersistHandleRef.current = null;
+      persistLocalEditsToStorage(targetTableId);
+    }, 120);
+  }, [activeTableId, persistLocalEditsToStorage]);
 
   const utils = api.useUtils();
   const tableQuery = api.table.byId.useQuery(
@@ -570,6 +622,9 @@ function BaseClientContent({
       if (sortPersistHandleRef.current) {
         window.clearTimeout(sortPersistHandleRef.current);
       }
+      if (pendingEditPersistHandleRef.current) {
+        window.clearTimeout(pendingEditPersistHandleRef.current);
+      }
     };
   }, []);
 
@@ -598,13 +653,14 @@ function BaseClientContent({
   useEffect(() => {
     if (typeof window === "undefined") return;
     const handler = () => {
+      persistLocalEditsToStorage();
       if (pendingCellEditsRef.current.size || cellUpdateQueuesRef.current.size) {
         logQueueSnapshot("beforeunload-with-pending");
       }
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [logQueueSnapshot]);
+  }, [logQueueSnapshot, persistLocalEditsToStorage]);
 
   const persistViewConfig = useCallback(
     (overrides?: {
@@ -701,6 +757,21 @@ function BaseClientContent({
       return allRecords;
     },
     [recordsQuery.data?.pages]
+  );
+  const getCachedCellValue = useCallback(
+    (recordId: string, fieldId: string) => {
+      const pages = recordsQuery.data?.pages;
+      if (!pages) return undefined;
+      for (const page of pages) {
+        const record = page.records.find((r) => r.id === recordId);
+        if (!record) continue;
+        const cell = record.cells.find((c) => c.fieldId === fieldId);
+        if (!cell) return null;
+        return normalizeLocalValue(cell.valueNumber ?? cell.valueText);
+      }
+      return undefined;
+    },
+    [normalizeLocalValue, recordsQuery.data?.pages],
   );
   const baseTotalCount = recordsQuery.data?.pages[0]?.total;
   const [totalDelta, setTotalDelta] = useState(0);
@@ -930,6 +1001,8 @@ function BaseClientContent({
       }
 
       applyCellToCache(cell.recordId, cell);
+      dirtyCellKeysRef.current.delete(key);
+      schedulePersistLocalEdits();
       logPendingState("server-update-success", {
         recordId: cell.recordId,
         fieldId: cell.fieldId,
@@ -1013,12 +1086,60 @@ function BaseClientContent({
   const handleLocalEditValue = useCallback(
     (recordId: string, fieldId: string, value: string | number | null | undefined) => {
       const key = makePendingKey(recordId, fieldId);
-      const normalized =
-        value === null || value === undefined ? null : typeof value === "number" ? value : String(value);
+      const normalized = normalizeLocalValue(value);
       lastLocalCellValueRef.current.set(key, normalized);
+      const serverValue = getCachedCellValue(recordId, fieldId);
+      if (serverValue !== undefined && serverValue === normalized) {
+        dirtyCellKeysRef.current.delete(key);
+      } else {
+        dirtyCellKeysRef.current.add(key);
+      }
+      schedulePersistLocalEdits();
     },
-    [],
+    [getCachedCellValue, normalizeLocalValue, schedulePersistLocalEdits],
   );
+
+  useEffect(() => {
+    if (!activeTableId) return;
+    if (hydratedPendingEditsRef.current.has(activeTableId)) return;
+    if (!recordsQuery.data?.pages) return;
+    hydratedPendingEditsRef.current.add(activeTableId);
+    if (typeof window === "undefined") return;
+    const storageKey = buildPendingEditsStorageKey(activeTableId);
+    let stored: { recordId: string; fieldId: string; value: string | number | null }[] = [];
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as typeof stored;
+      if (!Array.isArray(parsed)) return;
+      stored = parsed;
+    } catch {
+      return;
+    }
+    if (!stored.length) {
+      window.localStorage.removeItem(storageKey);
+      return;
+    }
+    window.localStorage.removeItem(storageKey);
+    stored.forEach(({ recordId, fieldId, value }) => {
+      if (!recordId || !fieldId) return;
+      if (isOptimisticRecordId(recordId) || isOptimisticFieldId(fieldId)) return;
+      const key = makePendingKey(recordId, fieldId);
+      const normalized = normalizeLocalValue(value);
+      lastLocalCellValueRef.current.set(key, normalized);
+      dirtyCellKeysRef.current.add(key);
+      applyCellToCache(recordId, buildOptimisticCell(recordId, fieldId, normalized));
+      enqueueCellUpdate(recordId, fieldId, normalized);
+    });
+    persistLocalEditsToStorage();
+  }, [
+    activeTableId,
+    applyCellToCache,
+    enqueueCellUpdate,
+    normalizeLocalValue,
+    persistLocalEditsToStorage,
+    recordsQuery.data?.pages,
+  ]);
 
   const resolveRecordId = useCallback(
     (recordId: string) => optimisticRecordIdMapRef.current.get(recordId) ?? recordId,
@@ -1397,11 +1518,12 @@ function BaseClientContent({
   });
 
   const flushLocalEdits = useCallback(() => {
-    if (!lastLocalCellValueRef.current.size) return;
+    if (!dirtyCellKeysRef.current.size) return;
     logPendingState("flush-local-edits", {
-      count: lastLocalCellValueRef.current.size,
+      count: dirtyCellKeysRef.current.size,
     });
-    lastLocalCellValueRef.current.forEach((val, key) => {
+    dirtyCellKeysRef.current.forEach((key) => {
+      const val = lastLocalCellValueRef.current.get(key);
       const [recordId, fieldId] = key.split(":");
       if (!recordId || !fieldId) return;
       handleCellChange(recordId, fieldId, val ?? null);
@@ -1749,7 +1871,7 @@ function BaseClientContent({
               sortedFieldIds={appliedSorts.map((s) => s.fieldId)}
               searchTerm={globalSearch}
               isLoading={tableQuery.isLoading || isRecordsLoading}
-            hasMore={hasMore}
+              hasMore={hasMore}
               isFetchingMore={isFetchingMore}
               onLoadMore={handleLoadMore}
               totalCount={totalCount}
@@ -1759,7 +1881,7 @@ function BaseClientContent({
                 if (!activeTableId || addField.isPending) return;
                 addField.mutate({
                   tableId: activeTableId,
-              type,
+                    type,
                     name,
                   });
                 }}

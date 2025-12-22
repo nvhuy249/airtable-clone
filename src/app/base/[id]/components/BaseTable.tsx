@@ -1110,7 +1110,7 @@ export default function BaseTable({
   const virtualRows = rowVirtualizer.getVirtualItems();
 
   // useEffect(() => {
-  //   console.log('🔍 Virtualization Status:', {
+  //   console.log('Virtualization Status:', {
   //     'Total data rows': data.length,
   //     'Virtual items rendered': virtualRows.length,
   //     'Savings': `${((1 - virtualRows.length / data.length) * 100).toFixed(1)}%`,
@@ -1129,7 +1129,6 @@ export default function BaseTable({
     .map((virtualRow) => allRows[virtualRow.index])
     .filter((row): row is NonNullable<typeof row> => row !== undefined);
 
-  // const tableRows = table.getRowModel().rows;
   const topSpacerHeight = virtualRows.length ? virtualRows[0]!.start : 0;
   const bottomSpacerHeight = virtualRows.length && rowVirtualizer
     ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1]!.end
