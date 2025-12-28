@@ -224,7 +224,7 @@ export const baseRouter = createTRPCRouter({
       return ctx.db.$transaction(async (tx) => {
         const newBase = await tx.base.create({
           data: {
-            name: input.name || `${originalBase.name} Copy`,
+            name: input.name ?? `${originalBase.name} Copy`,
             ownerId: ctx.session.user.id,
           },
         });

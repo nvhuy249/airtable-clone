@@ -305,17 +305,20 @@ export default function PageClient({ user, bases }: PageClientProps) {
     onMutate: async ({ id, name, copyRecords }) => {
       const tempId = "temp-base-" + Date.now();
       const original = basesState.find((b) => b.id === id);
+      const fallbackName = original?.name ? `${original.name} Copy` : "Untitled Base Copy";
+      const optimisticName = name ?? fallbackName;
+      const tablesToCopy = copyRecords ? original?.tables ?? [] : [];
       const optimistic: Base = {
         id: tempId,
-        name: name? name : original?.name + " Copy" || "Untitled Base Copy",
-        tables: original?.tables || [],
+        name: optimisticName,
+        tables: tablesToCopy,
         ownerId: user.id,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
       const previous = basesState;
       setBasesState((prev) => [optimistic, ...prev]);
-      return { previous, tempId, originalTables: original?.tables ?? [] };
+      return { previous, tempId, tablesToCopy };
     },
     onError: (_err, _vars, ctx) => {
       if (ctx?.previous) setBasesState(ctx.previous);
@@ -326,7 +329,7 @@ export default function PageClient({ user, bases }: PageClientProps) {
           b.id === ctx?.tempId
             ? {
                 ...newBase,
-                tables: ctx?.originalTables ?? [],
+                tables: ctx?.tablesToCopy ?? [],
               }
             : b,
         ),

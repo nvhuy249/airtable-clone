@@ -66,12 +66,11 @@ export default function BaseCard({
   isRenaming,
   renameValue,
   renamePending,
-  onOpen
+  onOpen,
 }: BaseCardProps) {
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [starred, setStarred] = useState(false);
-  const [dupName, setDupName] = useState(`${base.name} Copy`);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const renameSubmittedRef = useRef(false);
   const renameCancelledRef = useRef(false);
@@ -117,8 +116,6 @@ export default function BaseCard({
 
     return () => window.clearTimeout(id);
   }, [isRenaming]);
-
-  useEffect(() => setDupName(`${base.name} Copy`), [base.name]);
 
   const submitRename = () => {
     if (renameSubmittedRef.current || renameCancelledRef.current) return;
