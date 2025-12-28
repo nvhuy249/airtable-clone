@@ -14,7 +14,6 @@ import {
   FiTrash2,
 } from "react-icons/fi";
 import { TbDatabase } from "react-icons/tb";
-import { on } from "events";
 
 export interface Base {
   id: string;

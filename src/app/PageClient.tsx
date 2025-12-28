@@ -18,7 +18,6 @@ import {
 } from "react-icons/fi";
 
 import type { Base } from "./components/BaseCard";
-import { create } from "domain";
 
 interface PageClientProps {
   user: {
@@ -297,7 +296,7 @@ export default function PageClient({ user, bases }: PageClientProps) {
   const duplicateBase = useCallback(( id: string, baseName?: string ) => {
     const targetBase = basesState.find((b) => b.id === id);
     createBase.mutate({ name: baseName?? `${targetBase?.name} Copy` });
-  },[createBase]);
+  },[createBase, basesState]);
 
   const handleCreateEmptyBase = () => {
     if (createBase.isPending) return;
