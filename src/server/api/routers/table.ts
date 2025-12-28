@@ -465,7 +465,7 @@ export const tableRouter = createTRPCRouter({
                 ${hiddenExclusion}
                 AND ${buildTextValueExpr("c")} LIKE '%' || ${termParam} || '%'
             )`;
-          })
+          })()
         : "";
 
       const fetchParams = [...baseParams];

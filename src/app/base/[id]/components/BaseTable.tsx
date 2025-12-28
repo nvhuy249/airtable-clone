@@ -85,7 +85,7 @@ function useVirtualizerWithoutFlushSync<
         if (typeof queueMicrotask === "function") {
           queueMicrotask(schedule);
         } else {
-          Promise.resolve().then(schedule);
+          void Promise.resolve().then(schedule);
         }
       } else {
         rerender();
