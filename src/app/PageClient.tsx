@@ -18,8 +18,6 @@ import {
 } from "react-icons/fi";
 
 import type { Base } from "./components/BaseCard";
-import { set } from "zod";
-import { on } from "events";
 
 interface PageClientProps {
   user: {
