@@ -204,4 +204,113 @@ export const baseRouter = createTRPCRouter({
 
       return { deleted: result.count };
     }),
+
+  duplicate: protectedProcedure
+    .input(z.object({ id: z.string(), name: z.string().optional(), copyRecords: z.boolean().default(true) }))
+    .mutation(async ({ ctx, input }) => {
+      const originalBase = await ctx.db.base.findFirst({
+        where: { id: input.id, ownerId: ctx.session.user.id },
+        include: {
+          tables: {
+            include: {
+              fields: true,
+              records: { include: { cells: true }}
+            },
+          },
+        },
+      });
+      if (!originalBase) throw new TRPCError({ code: "NOT_FOUND" });
+
+      return ctx.db.$transaction(async (tx) => {
+        const newBase = await tx.base.create({
+          data: {
+            name: input.name || `${originalBase.name} Copy`,
+            ownerId: ctx.session.user.id,
+          },
+        });
+
+        for (const table of originalBase.tables) {
+          const newTable = await tx.table.create({
+            data: {
+              name: table.name,
+              baseId: newBase.id,
+            },
+          });
+
+          const newFields = await tx.field.createManyAndReturn({
+            data: table.fields.map((f) => ({
+              name: f.name,
+              type: f.type,
+              order: f.order,
+              tableId: newTable.id,
+            })),
+            select: { id: true, name: true, type: true, order: true },
+          });
+          const fieldIdMap = Object.fromEntries(
+            newFields.map((nf, idx) => [table.fields[idx]!.id, nf.id]),
+          );
+
+          if (input.copyRecords) {
+            const newRecords = await tx.record.createManyAndReturn({
+              data: table.records.map(() => ({ tableId: newTable.id })),
+                select: { id: true },
+              });
+            const recordIdMap = Object.fromEntries(
+              table.records.map((r, idx) => [r.id, newRecords[idx]!.id]),
+            );
+
+            const cellsPayload = table.records.flatMap((r) =>
+              r.cells.map((c) => {
+                const recordId = recordIdMap[r.id];
+                const fieldId = fieldIdMap[c.fieldId];
+                if (!recordId || !fieldId) return null; // skip/guard
+                return {
+                  recordId,
+                  fieldId,
+                  valueText: c.valueText,
+                  valueNumber: c.valueNumber,
+                };
+              }),
+            ).filter(Boolean) as { recordId: string; fieldId: string; valueText: string | null; valueNumber: number | null }[];
+
+            const CHUNK = 1000;
+            for (let i = 0; i < cellsPayload.length; i += CHUNK) {
+              const chunk = cellsPayload.slice(i, i + CHUNK);
+              await tx.cell.createMany({ data: chunk });
+            }
+          }
+          else {
+            const DEFAULT_RECORD_COUNT = 5;
+            const newRecords = await tx.record.createManyAndReturn({
+              data: Array.from({ length: DEFAULT_RECORD_COUNT }).map(() => ({
+                tableId: newTable.id,
+              })),
+              select: { id: true },
+            });
+
+            const cellsPayload = newRecords.flatMap((record) =>
+              newFields.map((f) => ({
+                recordId: record.id,
+                fieldId: f.id,
+                valueText:
+                  f.type === FieldType.NUMBER
+                    ? null
+                    : f.name.toLowerCase().includes("name")
+                      ? faker.person.fullName()
+                      : faker.lorem.sentence(4),
+                valueNumber:
+                  f.type === FieldType.NUMBER ? faker.number.int({ min: 1, max: 1000 }) : null,
+              })),
+            );
+
+            const CHUNK = 1000;
+            for (let i = 0; i < cellsPayload.length; i += CHUNK) {
+              await tx.cell.createMany({ data: cellsPayload.slice(i, i + CHUNK) });
+            }
+          }
+        }
+
+        return newBase;
+      });
+    }),
 });

@@ -32,7 +32,6 @@ interface BaseCardProps {
   onRenameSubmit?: () => void;
   onRenameCancel?: () => void;
   onDuplicateBase?: (base: Base) => void;
-  onDuplicate?: (id: string, name: string) => void;
   isRenaming?: boolean;
   renameValue?: string;
   renamePending?: boolean;
@@ -64,7 +63,6 @@ export default function BaseCard({
   onRenameSubmit,
   onRenameCancel,
   onDuplicateBase,
-  onDuplicate,
   isRenaming,
   renameValue,
   renamePending,
@@ -73,7 +71,6 @@ export default function BaseCard({
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [starred, setStarred] = useState(false);
-  const [openDuplicateBase, setOpenDuplicateBase] = useState(false);
   const [dupName, setDupName] = useState(`${base.name} Copy`);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const renameSubmittedRef = useRef(false);
@@ -99,7 +96,6 @@ export default function BaseCard({
   };
 
   const closeMenu = () => setMenuOpen(false);
-  const closeDuplicateMenu = () => setOpenDuplicateBase(false);
   const lastOpenedLabel = formatLastOpened(base.updatedAt ?? base.createdAt);
 
   useEffect(() => {
@@ -136,15 +132,9 @@ export default function BaseCard({
   };
 
   const handleCardClick = () => {
-    if (isRenaming || menuOpen || openDuplicateBase) return;
+    if (isRenaming || menuOpen) return;
     onOpen?.();
     void router.push(`/base/${base.id}`);
-  };
-
-  const handleDuplicateBase = () => {
-    const name = dupName.trim() || `${base.name} Copy`;
-    onDuplicate?.(base.id, name);
-    closeDuplicateMenu();
   };
 
   return (
@@ -253,7 +243,7 @@ export default function BaseCard({
             />
             <MenuItem icon={<FiCopy />} label="Duplicate" onClick={() => {
               closeMenu();
-              setOpenDuplicateBase(true);
+              onDuplicateBase?.(base);
               }} />
             <MenuItem
               icon={<FiArrowRight />}
@@ -280,61 +270,6 @@ export default function BaseCard({
               }}
               className="text-red-600 hover:text-red-700"
             />
-
-            
-          </div>
-        </div>
-      )}
-      {openDuplicateBase && (
-        <div className="absolute right-3 top-[56px] z-20 w-64 rounded-xl border border-[#e6e8eb] bg-white shadow-lg">
-          <div className="py-2 text-sm text-[#1f2933]">
-            <h2 className="px-4 py-2 font-medium">Duplicate Base</h2>
-            <div className="px-4 py-2">
-              <input
-                value={dupName}
-                onChange={(e) => setDupName(e.target.value)}
-                aria-label={`${base.name} Copy`}
-                className="text-[14px] font-medium text-[#1f2933] bg-white border border-[#5c9bfd] rounded px-2 py-1 w-full max-w-[200px] outline-none shadow-[0_0_0_2px_rgba(92,155,253,0.15)]"
-                onKeyDown={(e) => {
-                  e.stopPropagation()
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    onDuplicateBase?.(base);
-                  }
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    closeDuplicateMenu();
-                  }
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                }}
-                onMouseDown={(e) => e.stopPropagation()}
-              />
-            </div>
-            <div className="flex items-center justify-start gap-2 px-4 py-2">
-              <button
-                type="button">Duplicate records</button>
-              <button
-                type="button">Duplicate comments</button>
-            </div>
-            <div className="flex items-center justify-end gap-2 px-4 py-2">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  setOpenDuplicateBase(false)}}
-              >Cancel</button>
-              <button
-                type="button"
-                onClick={() => {
-                  handleDuplicateBase();
-                  setOpenDuplicateBase(false);
-                }}
-              >Duplicate Base</button>
-            </div>
           </div>
         </div>
       )}

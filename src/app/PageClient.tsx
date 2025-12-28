@@ -16,6 +16,7 @@ import {
   FiEdit2,
   FiTrash2,
 } from "react-icons/fi";
+import { XIcon } from "lucide-react";
 
 import type { Base } from "./components/BaseCard";
 
@@ -27,6 +28,12 @@ interface PageClientProps {
     image?: string | null;
   };
   bases: Base[];
+}
+
+type DuplicateDialogState = {
+  base: Base;
+  name: string;
+  copyRecords: boolean;
 }
 
 const FILTERS = [
@@ -152,6 +159,7 @@ export default function PageClient({ user, bases }: PageClientProps) {
     const pending = pendingDeletedRef.current;
     return bases.filter((b) => !pending.has(b.id));
   });
+  const [duplicateDialog, setDuplicateDialog] = useState<DuplicateDialogState | null>(null);
   const getPendingDeleted = useCallback(() => {
     const pending =
       typeof window === "undefined" ? pendingDeletedRef.current : loadPendingDeleted();
@@ -293,10 +301,43 @@ export default function PageClient({ user, bases }: PageClientProps) {
     },
   });
 
-  const duplicateBase = useCallback(( id: string, baseName?: string ) => {
-    const targetBase = basesState.find((b) => b.id === id);
-    createBase.mutate({ name: baseName?? `${targetBase?.name} Copy` });
-  },[createBase, basesState]);
+  const duplicateBase = api.base.duplicate.useMutation({
+    onMutate: async ({ id, name, copyRecords }) => {
+      const tempId = "temp-base-" + Date.now();
+      const original = basesState.find((b) => b.id === id);
+      const optimistic: Base = {
+        id: tempId,
+        name: name? name : original?.name + " Copy" || "Untitled Base Copy",
+        tables: original?.tables || [],
+        ownerId: user.id,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      const previous = basesState;
+      setBasesState((prev) => [optimistic, ...prev]);
+      return { previous, tempId, originalTables: original?.tables ?? [] };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous) setBasesState(ctx.previous);
+    },
+    onSuccess: (newBase, _vars, ctx) => {
+      setBasesState((prev) =>
+        prev.map((b) =>
+          b.id === ctx?.tempId
+            ? {
+                ...newBase,
+                tables: ctx?.originalTables ?? [],
+              }
+            : b,
+        ),
+      );
+    },
+  });
+
+  const openDuplicateDialog = ( base: Base ) => {
+    setDuplicateDialog({ base, name: `${base.name} Copy`, copyRecords: true });
+  }
+  const closeDuplicateDialog = () => {setDuplicateDialog(null);}
 
   const handleCreateEmptyBase = () => {
     if (createBase.isPending) return;
@@ -426,8 +467,7 @@ export default function PageClient({ user, bases }: PageClientProps) {
                             onRenameChange={handleRenameChange}
                             onRenameSubmit={() => handleSubmitRename(base.id)}
                             onRenameCancel={handleCancelRename}
-                            onDuplicateBase={() => duplicateBase(base.id)}
-                            onDuplicate={() => duplicateBase(base.id)}
+                            onDuplicateBase={() => openDuplicateDialog(base)}
                             onDelete={handleDeleteBase}
                             onOpen={() => {
                               markOpened.mutate({ id: base.id });
@@ -487,6 +527,96 @@ export default function PageClient({ user, bases }: PageClientProps) {
         onClose={() => setCreateOpen(false)}
         onCreateEmptyBase={handleCreateEmptyBase}
       />
+      {duplicateDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={closeDuplicateDialog}
+        >
+          <div 
+            className="w-full max-w-[500px] rounded-md bg-white shadow-2xl p-6 space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between">
+              <div className="space-y-1">
+                <p className="text-[18px] font-semibold text-[#1f2933]">
+                  Duplicate “{duplicateDialog.base.name || "Untitled Base"}”
+                </p>
+              </div>
+              <button
+                type="button"
+                className="text-[#6b7280] hover:text-[#111827]"
+                onClick={closeDuplicateDialog}
+              >
+                <XIcon className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex justify-center">
+              <div className="h-12 w-12 rounded-xl bg-[#eef2f7] border border-[#e6e8eb] flex items-center justify-center text-[16px] font-semibold text-[#4b5563]">
+                {(duplicateDialog.base.name || "Un").slice(0, 2).toUpperCase()}
+              </div>
+            </div>
+
+            <input
+              type="text"
+              value={duplicateDialog.name}
+              onChange={(e) =>
+                setDuplicateDialog((prev) => (prev ? { ...prev, name: e.target.value } : prev))
+              }
+              className="w-full rounded-md border border-[#d1d5db] px-3 py-2 text-[14px] outline-none focus:ring-2 focus:ring-blue-500"
+              aria-label="Duplicate name"
+            />
+
+            <div className="space-y-3 text-[14px] text-[#1f2933]">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDuplicateDialog((prev) =>
+                      prev ? { ...prev, copyRecords: !prev.copyRecords } : prev,
+                    )
+                  }
+                  className={`relative inline-flex h-3 w-6 rounded-full transition-colors ${
+                    duplicateDialog.copyRecords ? "bg-green-600" : "bg-gray-300"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-3 w-3 transform rounded-full bg-gray-200 shadow transition ${
+                      duplicateDialog.copyRecords ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+                <span>Duplicate records</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={closeDuplicateDialog}
+                className="rounded-md border border-[#d1d5db] px-4 py-2 text-[13px] text-[#1f2933]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const name = duplicateDialog.name.trim() || `${duplicateDialog.base.name || "Untitled Base"} Copy`;
+                  duplicateBase.mutate({
+                    id: duplicateDialog.base.id,
+                    name,
+                    copyRecords: duplicateDialog.copyRecords,
+                  });
+                  closeDuplicateDialog();
+                }}
+                className="rounded-md bg-blue-600 px-4 py-2 text-[13px] text-white"
+              >
+                Duplicate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
