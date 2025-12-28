@@ -162,6 +162,7 @@ export default function PageClient({ user, bases }: PageClientProps) {
     const pending = getPendingDeleted();
     setBasesState(bases.filter((b) => !pending.has(b.id)));
   }, [bases, getPendingDeleted]);
+  
   const utils = api.useUtils();
 
   useEffect(() => {
@@ -174,13 +175,10 @@ export default function PageClient({ user, bases }: PageClientProps) {
 
   const router = useRouter();
 
-  // Sidebar expand logic
   const expanded = sidebarOpen || sidebarHover;
 
-  // Pad content instead of margin to avoid horizontal overflow when expanded
   const contentPadding = sidebarOpen ? "pl-75" : "pl-16";
 
-  // Fake date filtering demo â€” update when you have timestamps
   const filteredBases = useMemo(() => {
     const now = Date.now();
     return basesState.filter((base) => {
@@ -198,7 +196,7 @@ export default function PageClient({ user, bases }: PageClientProps) {
     onMutate: async ({ name }) => {
       const tempId = "temp-base-" + Date.now();
 
-        const optimistic: Base = {
+      const optimistic: Base = {
         id: tempId,
         name,
         tables: [

@@ -7,8 +7,23 @@ import {
   type CellContext,
   type ColumnDef,
 } from "@tanstack/react-table";
-import { useVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
+import {
+  Virtualizer,
+  elementScroll,
+  observeElementOffset,
+  observeElementRect,
+  type PartialKeys,
+  type VirtualizerOptions,
+} from "@tanstack/virtual-core";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  useLayoutEffect,
+} from "react";
 import { FiChevronDown, FiCircle, FiPaperclip, FiPlus, FiType, FiUser } from "react-icons/fi";
 import type React from "react";
 
@@ -43,6 +58,53 @@ const FIRST_COL_STICKY_CLASS = "left-[56px]";
 const FIRST_SEPARATOR_LEFT_CLASS = "left-[236px]";
 const TEXT_COL_CLASS = "w-[180px] min-w-[180px]";
 const NUMBER_COL_CLASS = "w-[180px] min-w-[180px]";
+
+const useIsomorphicLayoutEffect =
+  typeof document !== "undefined" ? useLayoutEffect : useEffect;
+
+// Local wrapper to avoid React flushSync warnings when @tanstack/react-virtual requests sync updates.
+function useVirtualizerWithoutFlushSync<
+  TScrollElement extends Element,
+  TItemElement extends Element,
+>(
+  options: PartialKeys<
+    VirtualizerOptions<TScrollElement, TItemElement>,
+    "observeElementRect" | "observeElementOffset" | "scrollToFn"
+  >,
+): Virtualizer<TScrollElement, TItemElement> {
+  const rerender = useReducer(() => ({}), {})[1];
+
+  const resolvedOptions: VirtualizerOptions<TScrollElement, TItemElement> = {
+    observeElementRect,
+    observeElementOffset,
+    scrollToFn: elementScroll,
+    ...options,
+    onChange: (instance, sync) => {
+      if (sync) {
+        const schedule = () => rerender();
+        if (typeof queueMicrotask === "function") {
+          queueMicrotask(schedule);
+        } else {
+          Promise.resolve().then(schedule);
+        }
+      } else {
+        rerender();
+      }
+      options.onChange?.(instance, sync ?? false);
+    },
+  };
+
+  const [instance] = useState(
+    () => new Virtualizer<TScrollElement, TItemElement>(resolvedOptions),
+  );
+
+  instance.setOptions(resolvedOptions);
+
+  useIsomorphicLayoutEffect(() => instance._didMount(), [instance]);
+  useIsomorphicLayoutEffect(() => instance._willUpdate());
+
+  return instance;
+}
 
 const readCellValue = (field: FieldShape, cell?: CellShape | null): ColumnValue => {
   if (!cell) return null;
@@ -1069,7 +1131,7 @@ export default function BaseTable({
   ]);
 
 
-  const rowVirtualizer = useVirtualizer({
+  const rowVirtualizer = useVirtualizerWithoutFlushSync({
     count: data.length,
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: () => VIRTUAL_ROW_HEIGHT,

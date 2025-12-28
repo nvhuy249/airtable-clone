@@ -90,6 +90,19 @@ const reorderById = <T extends { id: string }>(list: T[], fromId: string, toId: 
   return next;
 };
 
+// Keep only the first sort per field to prevent duplicate column sorts.
+const dedupeSortState = (state: SortState): SortState => {
+  const seen = new Set<string>();
+  return {
+    ...state,
+    items: state.items.filter((item) => {
+      if (seen.has(item.fieldId)) return false;
+      seen.add(item.fieldId);
+      return true;
+    }),
+  };
+};
+
 export default function TableToolbar({
   fields,
   hiddenFieldIds,
@@ -122,7 +135,7 @@ export default function TableToolbar({
   const [filterOpen, setFilterOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
   const [localFilters, setLocalFilters] = useState(filters);
-  const [localSorts, setLocalSorts] = useState<SortState>(sorts);
+  const [localSorts, setLocalSorts] = useState<SortState>(() => dedupeSortState(sorts));
   const [draggingSortId, setDraggingSortId] = useState<string | null>(null);
   const [sortDragOverId, setSortDragOverId] = useState<string | null>(null);
   const [draggingFilterId, setDraggingFilterId] = useState<string | null>(null);
@@ -145,6 +158,11 @@ export default function TableToolbar({
     [fields],
   );
   const [groupItem, colorItem, ...otherToolbarItems] = toolbarItems;
+
+  const sortedFieldIds = useMemo(
+    () => new Set(localSorts.items.map((s) => s.fieldId)),
+    [localSorts.items],
+  );
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -193,7 +211,7 @@ export default function TableToolbar({
   }, [filters]);
 
   useEffect(() => {
-    setLocalSorts(sorts);
+    setLocalSorts(dedupeSortState(sorts));
   }, [sorts]);
 
   const startEditing = (id: string, name: string) => {
@@ -678,6 +696,12 @@ export default function TableToolbar({
                       const fieldForItem =
                         orderedFields.find((f) => f.id === item.fieldId) ?? orderedFields[0];
                       const isNumber = (fieldForItem?.type ?? "").toString().toUpperCase() === "NUMBER";
+                      const usedByOthers = new Set(
+                        localSorts.items.filter((s) => s.id !== item.id).map((s) => s.fieldId),
+                      );
+                      const selectableFields = orderedFields.filter(
+                        (field) => field.id === item.fieldId || !usedByOthers.has(field.id),
+                      );
                       return (
                         <div
                           key={item.id}
@@ -704,6 +728,7 @@ export default function TableToolbar({
                           <select
                             value={item.fieldId}
                             onChange={(e) => {
+                              if (usedByOthers.has(e.target.value)) return;
                               const next: SortState = {
                                 ...localSorts,
                                 items: localSorts.items.map((s) =>
@@ -715,7 +740,7 @@ export default function TableToolbar({
                             }}
                             className="h-9 flex-1 rounded border border-[#d9dde8] px-3 py-1 text-[#111827] focus:border-[#2557e0] focus:outline-none focus:ring-0"
                           >
-                            {orderedFields.map((field) => (
+                            {selectableFields.map((field) => (
                               <option key={field.id} value={field.id}>
                                 {field.name}
                               </option>
@@ -791,9 +816,9 @@ export default function TableToolbar({
 
                   <button
                     type="button"
-                    className="inline-flex items-center gap-2 text-[#98a2b3] hover:text-[#344054]"
+                    className="inline-flex items-center gap-2 text-[#98a2b3] hover:text-[#344054] disabled:text-[#d0d5dd] disabled:cursor-not-allowed"
                     onClick={() => {
-                      const field = orderedFields[0];
+                      const field = orderedFields.find((f) => !sortedFieldIds.has(f.id));
                       if (!field) return;
                       const next: SortState = {
                         ...localSorts,
@@ -805,6 +830,8 @@ export default function TableToolbar({
                       setLocalSorts(next);
                       if (localSorts.auto) onSortsChange(next, true);
                     }}
+                    disabled={!orderedFields.some((f) => !sortedFieldIds.has(f.id))}
+                    aria-disabled={!orderedFields.some((f) => !sortedFieldIds.has(f.id))}
                   >
                     <span className="text-lg leading-none">+</span>
                     <span>Add another sort</span>

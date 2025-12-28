@@ -439,7 +439,7 @@ export const tableRouter = createTRPCRouter({
 
       const hiddenFieldIds = (effectiveConfig.hiddenFieldIds ?? []).filter((id) => fieldIds.has(id));
 
-      const limit = input.limit ?? 50;
+      const limit = input.limit ?? 100;
       const offset = decodeCursor(input.cursor) ?? 0;
       const limitPlusOne = limit + 1;
 
@@ -465,7 +465,7 @@ export const tableRouter = createTRPCRouter({
                 ${hiddenExclusion}
                 AND ${buildTextValueExpr("c")} LIKE '%' || ${termParam} || '%'
             )`;
-          })()
+          })
         : "";
 
       const fetchParams = [...baseParams];
