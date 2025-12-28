@@ -18,6 +18,8 @@ import {
 } from "react-icons/fi";
 
 import type { Base } from "./components/BaseCard";
+import { set } from "zod";
+import { on } from "events";
 
 interface PageClientProps {
   user: {
@@ -162,7 +164,7 @@ export default function PageClient({ user, bases }: PageClientProps) {
     const pending = getPendingDeleted();
     setBasesState(bases.filter((b) => !pending.has(b.id)));
   }, [bases, getPendingDeleted]);
-  
+
   const utils = api.useUtils();
 
   useEffect(() => {
@@ -191,6 +193,17 @@ export default function PageClient({ user, bases }: PageClientProps) {
       return true; // "any"
     });
   }, [basesState, filter]);
+
+  const markOpened = api.base.markOpened.useMutation({
+    onMutate: async ({ id }) => {
+      const prev = basesState;
+      setBasesState((prev) => prev.map(b => b.id === id ? { ...b, updatedAt: new Date() } : b));
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) setBasesState(ctx.prev);
+    },
+  });
 
   const createBase = api.base.create.useMutation({
     onMutate: async ({ name }) => {
@@ -411,6 +424,9 @@ export default function PageClient({ user, bases }: PageClientProps) {
                             onRenameSubmit={() => handleSubmitRename(base.id)}
                             onRenameCancel={handleCancelRename}
                             onDelete={handleDeleteBase}
+                            onOpen={() => {
+                              markOpened.mutate({ id: base.id });
+                            }}
                           />
                         ))}
                       </div>
@@ -446,6 +462,9 @@ export default function PageClient({ user, bases }: PageClientProps) {
                               onRenameSubmit={() => handleSubmitRename(base.id)}
                               onRenameCancel={handleCancelRename}
                               onDelete={handleDeleteBase}
+                              onOpen={() => {
+                                markOpened.mutate({ id: base.id });
+                              }}
                             />
                           ))}
                         </div>
@@ -479,6 +498,7 @@ function BaseListRow({
   onRenameSubmit,
   onRenameCancel,
   onDelete,
+  onOpen,
 }: {
   base: Base;
   lastOpenedLabel: string;
@@ -491,6 +511,7 @@ function BaseListRow({
   onRenameSubmit: () => void;
   onRenameCancel: () => void;
   onDelete: (id: string) => void;
+  onOpen: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
@@ -524,9 +545,25 @@ function BaseListRow({
     return () => window.clearTimeout(id);
   }, [isRenaming]);
 
+  const router = useRouter();
+
+  const handleOpen = () => {
+    if (isRenaming) return;
+    onOpen?.();
+    void router.push(`/base/${base.id}`);
+  };
+
   return (
     <div className="relative" ref={menuRef}>
-      <div className="group grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-3 px-2 py-2 rounded-lg hover:bg-[#e9edf3]">
+      <div className="group grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-3 px-2 py-2 rounded-lg hover:bg-[#e9edf3]" 
+        onClick={handleOpen}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            handleOpen();
+          }
+        }}
+        >
         <div className="flex items-center gap-3 min-w-0 w-full">
           <div className="h-9 w-9 rounded-lg bg-[#eef2f7] text-[#4b5563] flex items-center justify-center text-[13px] font-semibold border border-[#e6e8eb]">
             {initials}
@@ -563,6 +600,7 @@ function BaseListRow({
             <button
               type="button"
               onClick={(e) => {
+                e.stopPropagation();
                 e.preventDefault();
                 setMenuOpen((prev) => !prev);
               }}

@@ -1,5 +1,6 @@
 import { faker } from "@faker-js/faker";
 import { FieldType } from "../../../../generated/prisma";
+import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
 import { z } from "zod";
 
@@ -15,7 +16,7 @@ export const baseRouter = createTRPCRouter({
   list: protectedProcedure.query(async ({ ctx }) => {
     return ctx.db.base.findMany({
       where: { ownerId: ctx.session.user.id },
-      orderBy: { createdAt: "desc" },
+      orderBy: { updatedAt: "desc" },
       include: { tables: true}
     });
   }),
@@ -37,6 +38,21 @@ export const baseRouter = createTRPCRouter({
             },
           },
         },
+      });
+    }),
+
+  markOpened: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const base = await ctx.db.base.findFirst({
+        where: { id: input.id, ownerId: ctx.session.user.id },
+        select: { id: true },
+      });
+      if (!base) throw new TRPCError({ code: "NOT_FOUND" });
+      return ctx.db.base.update({
+        where: { id: input.id },
+        data: { updatedAt: new Date() },
+        select: { id: true, updatedAt: true },
       });
     }),
 

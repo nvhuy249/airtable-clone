@@ -34,6 +34,7 @@ interface BaseCardProps {
   isRenaming?: boolean;
   renameValue?: string;
   renamePending?: boolean;
+  onOpen?: () => void;
 }
 
 function formatLastOpened(value: string | Date) {
@@ -63,6 +64,7 @@ export default function BaseCard({
   isRenaming,
   renameValue,
   renamePending,
+  onOpen
 }: BaseCardProps) {
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -126,6 +128,7 @@ export default function BaseCard({
 
   const handleCardClick = () => {
     if (isRenaming) return;
+    onOpen?.();
     void router.push(`/base/${base.id}`);
   };
 
