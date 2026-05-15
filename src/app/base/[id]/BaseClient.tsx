@@ -157,20 +157,7 @@ function BaseClientContent({
   const viewSidebarOpen = viewSidebarPinned || viewSidebarHoverOpen;
 
   const logPendingState = useCallback(
-    (event: string, payload: Record<string, unknown> = {}) => {
-      const pendingEdits = pendingCellEditsRef.current.size;
-      const queuedUpdates = cellUpdateQueuesRef.current.size;
-      const inFlight = Array.from(cellUpdateQueuesRef.current.values()).filter(
-        (v) => v.inFlight,
-      ).length;
-      // Lightweight debug logger to trace cell edit flows and potential echoes.
-      console.log("[cell-debug]", event, {
-        pendingEdits,
-        queuedUpdates,
-        inFlight,
-        ...payload,
-      });
-    },
+    (_event: string, _payload: Record<string, unknown> = {}) => {},
     [],
   );
 

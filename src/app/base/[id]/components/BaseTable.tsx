@@ -972,14 +972,6 @@ export default function BaseTable({
                           ? rawValue.at(-1)!
                           : editValue
                       : rawValue;
-                    // Debug the raw input to track echoes.
-                    console.log("[cell-debug/input]", {
-                      recordId,
-                      fieldId: key,
-                      rawValue,
-                      nextValue,
-                      canonicalValue,
-                    });
                   setEditValue(nextValue);
                     const normalizedForField = normalizeValueForField(nextValue, field);
                     onEditValueChange?.(
