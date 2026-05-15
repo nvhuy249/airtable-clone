@@ -966,7 +966,9 @@ export default function BaseTable({
                     const nextValue = isBooleanField
                       ? rawValue === ""
                         ? ""
-                        : (rawValue.match(/[01]/g)?.at(-1) ?? editValue)
+                        : /^[01]+$/.test(rawValue)
+                          ? rawValue.at(-1)!
+                          : editValue
                       : rawValue;
                     // Debug the raw input to track echoes.
                     console.log("[cell-debug/input]", {
