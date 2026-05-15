@@ -868,6 +868,7 @@ export default function BaseTable({
 
         const commitChange = (pendingValue?: string) => {
           if (!_onCellChange) return;
+          if (isBooleanField) return;
           const valueToCommit = pendingValue ?? editValue;
           const normalized = normalizeValueForField(valueToCommit, field);
           if (normalized === undefined) {
@@ -890,6 +891,7 @@ export default function BaseTable({
 
         useEffect(() => {
           if (!isActive) return;
+          if (isBooleanField) return;
           if (!hasMountedRef.current) {
             hasMountedRef.current = true;
             return;
@@ -902,7 +904,7 @@ export default function BaseTable({
             _onCellChange(recordId, key, normalized);
           }, 700);
           return () => window.clearTimeout(timer);
-        }, [editValue, isActive, field, canonicalValue, recordId]);
+        }, [editValue, isActive, isBooleanField, field, canonicalValue, recordId]);
 
           return (
             <div
