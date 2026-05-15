@@ -157,7 +157,10 @@ function BaseClientContent({
   const viewSidebarOpen = viewSidebarPinned || viewSidebarHoverOpen;
 
   const logPendingState = useCallback(
-    (_event: string, _payload: Record<string, unknown> = {}) => {},
+    (_event: string, _payload: Record<string, unknown> = {}) => {
+      void _event;
+      void _payload;
+    },
     [],
   );
 
