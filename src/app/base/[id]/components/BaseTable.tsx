@@ -261,6 +261,7 @@ export default function BaseTable({
   const [data, setData] = useState<RowData[]>(
     buildRows(DEFAULT_FIELDS, DEFAULT_RECORDS),
   );
+  const dataRef = useRef<RowData[]>(data);
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
   const [hoveredHeader, setHoveredHeader] = useState<string | null>(null);
   const [headerMenu, setHeaderMenu] = useState<string | null>(null);
@@ -299,6 +300,10 @@ export default function BaseTable({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const hiddenSet = useMemo(() => new Set(hiddenFieldIds), [hiddenFieldIds]);
   const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
+
   useLayoutEffect(() => {
     if (scrollContainerRef.current) {
       setScrollElement(scrollContainerRef.current);
@@ -432,10 +437,27 @@ export default function BaseTable({
     // Full rebuild when fields change, records shrink/replace, or no append path.
     const doFullRebuild = fieldsChanged || !isAppend;
     if (doFullRebuild) {
+      const nextData = buildRows(useFields, useRecords);
+      const previousRowsByRecordId = new Map(
+        dataRef.current.map((row) => [row.__recordId, row]),
+      );
+      const mergedData = fieldsChanged
+        ? nextData.map((row) => {
+            const previous = previousRowsByRecordId.get(row.__recordId);
+            if (!previous) return row;
+            const preserved = { ...row };
+            useFields.forEach((field) => {
+              if (Object.prototype.hasOwnProperty.call(previous, field.id)) {
+                preserved[field.id] = previous[field.id];
+              }
+            });
+            return preserved;
+          })
+        : nextData;
       setLocalFields(useFields);
       setLocalRecords(useRecords);
       setColumnOrder(useFields.map((f) => f.id));
-      setData(buildRows(useFields, useRecords));
+      setData(mergedData);
       prevRecordCountRef.current = useRecords.length;
       lastScrollTopRef.current = 0;
       setSelectedRows(new Set());
@@ -819,6 +841,8 @@ export default function BaseTable({
         const field = fieldLookup[key];
         const canonicalValue = getCanonicalValue(recordId, key);
         const isNumberField = field?.type === "NUMBER";
+        const isBooleanField = field?.type === "BOOLEAN";
+        const isOptimisticField = String(key).startsWith("temp-field-");
         const hasMountedRef = useRef(false);
         const isActive =
           activeCellRef.current?.rowIndex === rowIndex &&
@@ -917,7 +941,11 @@ export default function BaseTable({
                 <input
                   ref={inputRef}
                   type={isNumberField ? "number" : "text"}
-                  className="w-full bg-transparent border-0 px-0 py-0 text-[13px] leading-[18px] text-gray-900 outline-none focus:outline-none focus:ring-0"
+                  inputMode={isBooleanField ? "numeric" : undefined}
+                  pattern={isBooleanField ? "[01]" : undefined}
+                  maxLength={isBooleanField ? 1 : undefined}
+                  disabled={isOptimisticField}
+                  className="w-full bg-transparent border-0 px-0 py-0 text-[13px] leading-[18px] text-gray-900 outline-none focus:outline-none focus:ring-0 disabled:cursor-wait disabled:text-gray-400"
                   style={{ caretColor: isEditing ? 'auto' : 'transparent' }}
                   placeholder=" "
                   value={editValue}
@@ -930,19 +958,40 @@ export default function BaseTable({
                     }
                   }}
                   onChange={(e) => {
+                    if (isOptimisticField) return;
                     if (!isEditing) {
                       setEditingCell({ rowIndex, colId: String(key) });
                     }
-                    const nextValue = e.target.value;
+                    const rawValue = e.target.value;
+                    const nextValue = isBooleanField
+                      ? rawValue === ""
+                        ? ""
+                        : (rawValue.match(/[01]/g)?.at(-1) ?? editValue)
+                      : rawValue;
                     // Debug the raw input to track echoes.
                     console.log("[cell-debug/input]", {
                       recordId,
                       fieldId: key,
+                      rawValue,
                       nextValue,
                       canonicalValue,
                     });
                   setEditValue(nextValue);
-                  onEditValueChange?.(recordId, key, nextValue === "" ? null : nextValue);
+                    const normalizedForField = normalizeValueForField(nextValue, field);
+                    onEditValueChange?.(
+                      recordId,
+                      key,
+                      normalizedForField === undefined
+                        ? nextValue === ""
+                          ? null
+                          : nextValue
+                        : normalizedForField,
+                    );
+                    if (field?.type === "BOOLEAN") {
+                      if (normalizedForField !== undefined && _onCellChange) {
+                        _onCellChange(recordId, key, normalizedForField);
+                      }
+                    }
                     setData((old) => {
                       const copy = [...old];
                       const current = copy[rowIndex];
@@ -952,9 +1001,8 @@ export default function BaseTable({
                     });
                     // For optimistic rows/fields, commit immediately so edits are queued before IDs swap.
                     if (recordId.startsWith("temp-") || String(key).startsWith("temp-")) {
-                      const normalized = normalizeValueForField(nextValue, field);
-                      if (normalized !== undefined && _onCellChange) {
-                        _onCellChange(recordId, key, normalized);
+                      if (normalizedForField !== undefined && _onCellChange) {
+                        _onCellChange(recordId, key, normalizedForField);
                       }
                     }
                   }}

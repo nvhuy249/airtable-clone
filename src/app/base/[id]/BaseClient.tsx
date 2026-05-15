@@ -973,10 +973,14 @@ function BaseClientContent({
 
       return { previous };
     },
-    onError: (_err, _variables, context) => {
+    onError: (_err, variables, context) => {
       if (context?.previous && recordsQueryInput) {
         utils.table.records.setInfiniteData(recordsQueryInput, context.previous);
       }
+      applyCellToCache(
+        variables.recordId,
+        buildOptimisticCell(variables.recordId, variables.fieldId, variables.value as CellValue),
+      );
     },
     onSuccess: (cell) => {
       const key = makePendingKey(cell.recordId, cell.fieldId);
@@ -1045,6 +1049,7 @@ function BaseClientContent({
               fieldId,
               message: error?.message,
             });
+            window.setTimeout(() => processCellUpdateQueue(recordId, fieldId), 1500);
           },
           onSettled: () => {
             const next = cellUpdateQueuesRef.current.get(key);
@@ -1078,7 +1083,12 @@ function BaseClientContent({
       const key = makePendingKey(recordId, fieldId);
       const current = cellUpdateQueuesRef.current.get(key);
       cellUpdateQueuesRef.current.set(key, { pending: value, inFlight: current?.inFlight ?? false });
-      const normalized = value === null ? null : typeof value === "number" ? value : String(value);
+      const normalized =
+        value === null
+          ? null
+          : typeof value === "number" || typeof value === "boolean"
+            ? value
+            : String(value);
       lastLocalCellValueRef.current.set(key, normalized);
       applyCellToCache(recordId, buildOptimisticCell(recordId, fieldId, value));
       logPendingState("cell-update-queued", {
@@ -1106,9 +1116,13 @@ function BaseClientContent({
       } else {
         dirtyCellKeysRef.current.add(key);
       }
-      schedulePersistLocalEdits();
+      if (typeof normalized === "boolean") {
+        persistLocalEditsToStorage();
+      } else {
+        schedulePersistLocalEdits();
+      }
     },
-    [getCachedCellValue, normalizeLocalValue, schedulePersistLocalEdits],
+    [getCachedCellValue, normalizeLocalValue, persistLocalEditsToStorage, schedulePersistLocalEdits],
   );
 
   useEffect(() => {
