@@ -20,7 +20,7 @@ import { ColorIcon } from "./icons/ColorIcon";
 import { ListMoveIcon } from "./icons/ListMoveIcon";
 import { ShareSyncIcon } from "./icons/ShareSyncIcon";
 
-type Field = { id: string; name: string; order: number; type?: "TEXT" | "NUMBER" };
+type Field = { id: string; name: string; order: number; type?: "TEXT" | "NUMBER" | "BOOLEAN" };
 
 interface TableToolbarProps {
   viewName?: string;

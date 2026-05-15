@@ -1,5 +1,5 @@
 -- CreateEnum
-CREATE TYPE "FieldType" AS ENUM ('TEXT', 'NUMBER');
+CREATE TYPE "FieldType" AS ENUM ('TEXT', 'NUMBER', 'BOOLEAN');
 
 -- CreateTable
 CREATE TABLE "Post" (

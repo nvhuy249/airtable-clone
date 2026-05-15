@@ -27,7 +27,7 @@ import {
 import { FiChevronDown, FiCircle, FiPaperclip, FiPlus, FiType, FiUser } from "react-icons/fi";
 import type React from "react";
 
-type FieldType = "TEXT" | "NUMBER";
+type FieldType = "TEXT" | "NUMBER" | "BOOLEAN";
 
 type FieldShape = {
   id: string;
@@ -41,6 +41,7 @@ type CellShape = {
   fieldId: string;
   valueText: string | null;
   valueNumber: number | null;
+  valueBoolean: boolean | null;
 };
 
 type RecordShape = {
@@ -48,10 +49,14 @@ type RecordShape = {
   cells: CellShape[];
 };
 
-type ColumnValue = string | number | null | undefined;
+type ColumnValue = string | number | boolean | null | undefined;
 type RowData = Record<string, ColumnValue> & { __recordId: string; __rowIndex: number };
 
-const displayValue = (value: ColumnValue) => (value == null ? "" : String(value));
+const displayValue = (value: ColumnValue) => {
+  if (value == null) return "";
+  if (typeof value === "boolean") return value ? "1" : "0";
+  return String(value);
+};
 const VIRTUAL_ROW_HEIGHT = 32;
 const VIRTUAL_OVERSCAN = 8;
 const FIRST_COL_STICKY_CLASS = "left-[56px]";
@@ -108,25 +113,36 @@ function useVirtualizerWithoutFlushSync<
 
 const readCellValue = (field: FieldShape, cell?: CellShape | null): ColumnValue => {
   if (!cell) return null;
-  return field.type === "NUMBER"
-    ? cell.valueNumber ?? null
-    : cell.valueText ?? cell.valueNumber ?? null;
+  if (field.type === "NUMBER") return cell.valueNumber ?? null;
+  if (field.type === "BOOLEAN") return cell.valueBoolean ?? null;
+
+  return cell.valueText ?? null;
 };
 
 const normalizeValueForField = (
   rawValue: string,
   field?: FieldShape,
-): string | number | null | undefined => {
-  if (field?.type !== "NUMBER") {
-    return rawValue === "" ? null : rawValue;
-  }
+): string | number | null | boolean | undefined => {
   if (rawValue === "") return null;
-  const parsed = Number(rawValue);
-  if (Number.isNaN(parsed)) return undefined;
-  return parsed;
+
+  if (field?.type === "NUMBER") {
+    const parsed = Number(rawValue);
+    return Number.isNaN(parsed) ? undefined : parsed;
+  }
+
+  if (field?.type === "BOOLEAN") {
+    if (rawValue === "1") return true;
+    if (rawValue === "0") return false;
+    return undefined;
+  }
+
+  return rawValue;
 };
 
-const valuesEqual = (a: string | number | null, b: string | number | null) => {
+const valuesEqual = (
+  a: string | number | boolean | null,
+  b: string | number | boolean | null,
+) => {
   if (a === null || b === null) return a === b;
   if (typeof a === "number" && typeof b === "number") return a === b;
   return String(a) === String(b);
@@ -162,8 +178,12 @@ interface BaseTableProps {
   onDeleteColumn?: (fieldId: string) => void;
   onDeleteRecords?: (recordIds: string[]) => void;
   searchTerm?: string;
-  onCellChange?: (recordId: string, fieldId: string, value: string | number | null) => void;
-  onEditValueChange?: (recordId: string, fieldId: string, value: string | number | null | undefined) => void;
+  onCellChange?: (recordId: string, fieldId: string, value: string | number | boolean | null) => void;
+  onEditValueChange?: (
+    recordId: string,
+    fieldId: string,
+    value: string | number | boolean | null | undefined,
+  ) => void;
   activeCellIndex?: [number, number] | null;
   onActiveCellIndexChange?: (coords: [number, number] | null) => void;
 }
@@ -206,6 +226,7 @@ function createEmptyRecord(fields: FieldShape[]): RecordShape {
       fieldId: field.id,
       valueText: null,
       valueNumber: null,
+      valueBoolean: null,
     })),
   };
 }
@@ -530,7 +551,7 @@ export default function BaseTable({
           ...record,
           cells: [
             ...record.cells,
-            { fieldId: newFieldId, valueText: null, valueNumber: null },
+            { fieldId: newFieldId, valueText: null, valueNumber: null, valueBoolean: null },
           ],
         })),
       );
@@ -652,7 +673,7 @@ export default function BaseTable({
   }, [activeCell, visibleColumnOrder]);
 
   const getCanonicalValue = useCallback(
-    (recordId: string, fieldId: string): string | number | null => {
+    (recordId: string, fieldId: string): string | number | boolean | null => {
       const field = fieldLookup[fieldId];
       const cell = recordCellLookup.get(`${recordId}:${fieldId}`);
       if (!field || !cell) return null;
@@ -791,7 +812,7 @@ export default function BaseTable({
       }: CellContext<RowData, ColumnValue>) => {
         const inputRef = useRef<HTMLInputElement>(null);
         const cellValue = getValue();
-        const [editValue, setEditValue] = useState<string>(cellValue == null ? "" : String(cellValue));
+        const [editValue, setEditValue] = useState<string>(displayValue(cellValue));
         const rowIndex = row.original.__rowIndex ?? row.index;
         const colIndex = visibleColumnOrder.indexOf(key);
         const recordId = row.original.__recordId;
@@ -815,7 +836,7 @@ export default function BaseTable({
         }, [isActive, editValue]);
 
         useEffect(() => {
-          const next = cellValue == null ? "" : String(cellValue);
+          const next = displayValue(cellValue);
           // Avoid overwriting the user's in-progress edit with a stale server value.
           if (isEditing && editValue !== next) return;
           setEditValue(next);
@@ -1529,6 +1550,21 @@ export default function BaseTable({
             }}
           >
             Number
+          </button>
+          <button
+            type="button"
+            className="w-full px-3 py-2 text-left hover:bg-gray-50"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setAddFieldMenuOpen(false);
+              const anchor = computeAddFieldAnchor({ height: 180, width: 180 });
+              if (anchor) setAddFieldAnchor(anchor);
+              setPendingFieldType("BOOLEAN");
+              setPendingFieldName("");
+            }}
+          >
+            Boolean
           </button>
         </div>
       )}

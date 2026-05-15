@@ -24,7 +24,16 @@ const encodeCursor = (offset: number) =>
   Buffer.from(String(offset), "utf8").toString("base64");
 
 const buildTextValueExpr = (alias: string) =>
-  `LOWER(COALESCE(${alias}."valueText", ${alias}."valueNumber"::text, ''))`;
+  `LOWER(COALESCE(
+    ${alias}."valueText",
+    ${alias}."valueNumber"::text,
+    CASE
+      WHEN ${alias}."valueBoolean" IS TRUE THEN '1'
+      WHEN ${alias}."valueBoolean" IS FALSE THEN '0'
+      ELSE NULL
+    END,
+    ''
+  ))`;
 
 const buildNumberValueExpr = (alias: string) =>
   `(
@@ -264,6 +273,7 @@ export const tableRouter = createTRPCRouter({
               fieldId: true,
               valueText: true,
               valueNumber: true,
+              valueBoolean:true,
             },
           },
         },
@@ -329,7 +339,7 @@ export const tableRouter = createTRPCRouter({
                     recordId: record.id,
                     fieldId: field.id,
                     valueText:
-                      field.type === FieldType.NUMBER
+                      field.type === FieldType.NUMBER || field.type === FieldType.BOOLEAN
                         ? null
                         : field.name.toLowerCase().includes("name")
                           ? faker.person.fullName()
@@ -338,6 +348,10 @@ export const tableRouter = createTRPCRouter({
                       field.type === FieldType.NUMBER
                         ? faker.number.int({ min: 1, max: 1000 })
                         : null,
+                    valueBoolean:
+                      field.type === FieldType.BOOLEAN
+                        ? faker.datatype.boolean()
+                        :null,
                   })),
                 ),
                 select: {
@@ -346,6 +360,7 @@ export const tableRouter = createTRPCRouter({
                   fieldId: true,
                   valueText: true,
                   valueNumber: true,
+                  valueBoolean:true,
                 },
               })
             : [];
@@ -521,6 +536,7 @@ export const tableRouter = createTRPCRouter({
               fieldId: true,
               valueText: true,
               valueNumber: true,
+              valueBoolean: true,
             },
           },
         },
@@ -626,7 +642,7 @@ export const tableRouter = createTRPCRouter({
       z.object({
         recordId: z.string(),
         fieldId: z.string(),
-        value: z.union([z.string(), z.number(), z.null()]).optional(),
+        value: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -661,16 +677,32 @@ export const tableRouter = createTRPCRouter({
         return num;
       };
 
+      const asBoolean = () => {
+        if (input.value === null || input.value === undefined || input.value === "") return null;
+        if (input.value === true) return true;
+        if (input.value === false) return false;
+        if (input.value === 1 || input.value === "1") return true;
+        if (input.value === 0 || input.value === "0") return false;
+
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Boolean fields only accept 1 or 0",
+        });
+      };
+
       const data =
         field.type === FieldType.NUMBER
-          ? { valueNumber: asNumber(), valueText: null }
-          : {
-              valueText:
-                input.value === null || input.value === undefined
-                  ? null
-                  : String(input.value),
-              valueNumber: null,
-            };
+          ? { valueNumber: asNumber(), valueText: null, valueBoolean: null }
+          : field.type == FieldType.BOOLEAN
+            ? { valueBoolean: asBoolean(), valueText: null, valueNumber: null }
+            : {
+                valueText:
+                  input.value === null || input.value === undefined
+                    ? null
+                    : String(input.value),
+                valueNumber: null,
+                valueBoolean: null,
+              };
 
       const cell = await ctx.db.cell.upsert({
         where: { recordId_fieldId: { recordId: record.id, fieldId: field.id } },
@@ -834,6 +866,10 @@ export const tableRouter = createTRPCRouter({
             valueNumber:
               field.type === FieldType.NUMBER
                 ? faker.number.int({ min: 1, max: 1000 })
+                : null,
+            valueBoolean:
+              field.type === FieldType.BOOLEAN
+                ? faker.datatype.boolean()
                 : null,
           })),
         );

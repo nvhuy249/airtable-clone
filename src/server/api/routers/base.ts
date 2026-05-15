@@ -99,13 +99,15 @@ export const baseRouter = createTRPCRouter({
                 recordId: record.id,
                 fieldId: field.id,
                 valueText:
-                  field.type === FieldType.NUMBER
+                  field.type === FieldType.NUMBER || field.type === FieldType.BOOLEAN
                     ? null
                     : field.name.toLowerCase().includes("name")
                       ? faker.person.fullName()
                       : faker.lorem.sentence(4),
                 valueNumber:
                   field.type === FieldType.NUMBER ? faker.number.int({ min: 1, max: 1000 }) : null,
+                valueBoolean:
+                  field.type === FieldType.BOOLEAN ? faker.datatype.boolean() : null,
               })),
             ),
           });
@@ -269,9 +271,16 @@ export const baseRouter = createTRPCRouter({
                   fieldId,
                   valueText: c.valueText,
                   valueNumber: c.valueNumber,
+                  valueBoolean: c.valueBoolean,
                 };
               }),
-            ).filter(Boolean) as { recordId: string; fieldId: string; valueText: string | null; valueNumber: number | null }[];
+            ).filter(Boolean) as {
+              recordId: string;
+              fieldId: string;
+              valueText: string | null;
+              valueNumber: number | null;
+              valueBoolean: boolean | null;
+            }[];
 
             const CHUNK = 1000;
             for (let i = 0; i < cellsPayload.length; i += CHUNK) {
@@ -293,13 +302,15 @@ export const baseRouter = createTRPCRouter({
                 recordId: record.id,
                 fieldId: f.id,
                 valueText:
-                  f.type === FieldType.NUMBER
+                  f.type === FieldType.NUMBER || f.type === FieldType.BOOLEAN
                     ? null
                     : f.name.toLowerCase().includes("name")
                       ? faker.person.fullName()
                       : faker.lorem.sentence(4),
                 valueNumber:
                   f.type === FieldType.NUMBER ? faker.number.int({ min: 1, max: 1000 }) : null,
+                valueBoolean:
+                  f.type === FieldType.BOOLEAN ? faker.datatype.boolean() : null,
               })),
             );
 

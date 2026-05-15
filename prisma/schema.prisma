@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
   output   = "../generated/prisma"
@@ -8,41 +5,35 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  // NOTE: When using mysql or sqlserver, uncomment the @db.Text annotations in model Account below
-  // Further reading:
-  // https://next-auth.js.org/adapters/prisma#create-the-prisma-schema
-  // https://www.prisma.io/docs/reference/api-reference/prisma-schema-reference#string
   url      = env("DATABASE_URL")
 }
 
 model Post {
-  id        Int      @id @default(autoincrement())
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  createdBy   User   @relation(fields: [createdById], references: [id])
+  id          Int      @id @default(autoincrement())
+  name        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
   createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
 
   @@index([name])
 }
 
-// Necessary for Next auth
 model Account {
   id                       String  @id @default(cuid())
   userId                   String
   type                     String
   provider                 String
   providerAccountId        String
-  refresh_token            String? // @db.Text
-  access_token             String? // @db.Text
+  refresh_token            String?
+  access_token             String?
   expires_at               Int?
   token_type               String?
   scope                    String?
-  id_token                 String? // @db.Text
+  id_token                 String?
   session_state            String?
-  user                     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   refresh_token_expires_in Int?
+  user                     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
 }
@@ -61,16 +52,12 @@ model User {
   email         String?   @unique
   emailVerified DateTime?
   image         String?
-
-  accounts Account[]
-  sessions Session[]
-  posts    Post[]
-
-  // NEW: all bases owned by this user
-  bases Base[] @relation("UserBases")
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  accounts      Account[]
+  bases         Base[]    @relation("UserBases")
+  posts         Post[]
+  sessions      Session[]
 }
 
 model VerificationToken {
@@ -81,117 +68,84 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-// A "Base" = top-level container (like an Airtable base)
 model Base {
-  id   String @id @default(cuid())
-  name String
-
-  // who owns this base
-  owner   User   @relation("UserBases", fields: [ownerId], references: [id], onDelete: Cascade)
-  ownerId String
-
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  owner     User     @relation("UserBases", fields: [ownerId], references: [id], onDelete: Cascade)
   tables    Table[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 }
 
-// A "Table" inside a Base (e.g. "Tasks", "Customers", etc.)
 model Table {
-  id   String @id @default(cuid())
-  name String
-
-  base   Base   @relation(fields: [baseId], references: [id], onDelete: Cascade)
-  baseId String
-
-  fields  Field[]
-  records Record[]
-  views   View[]
-
+  id        String   @id @default(cuid())
+  name      String
+  baseId    String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  fields    Field[]
+  records   Record[]
+  base      Base     @relation(fields: [baseId], references: [id], onDelete: Cascade)
+  views     View[]
 }
 
-// Column definition (name, type, order, hidden)
 model Field {
-  id      String @id @default(cuid())
-  table   Table  @relation(fields: [tableId], references: [id], onDelete: Cascade)
-  tableId String
-
-  name     String
-  type     FieldType
-  order    Int
-  isHidden Boolean   @default(false)
-
-  cells Cell[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id        String    @id @default(cuid())
+  tableId   String
+  name      String
+  type      FieldType
+  order     Int
+  isHidden  Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  cells     Cell[]
+  table     Table     @relation(fields: [tableId], references: [id], onDelete: Cascade)
 
   @@index([tableId, order])
 }
 
-// Types of fields supported for now
-enum FieldType {
-  TEXT
-  NUMBER
-}
-
-// A row in the table
 model Record {
-  id      String @id @default(cuid())
-  table   Table  @relation(fields: [tableId], references: [id], onDelete: Cascade)
-  tableId String
-
-  cells Cell[]
-
+  id        String   @id @default(cuid())
+  tableId   String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  cells     Cell[]
+  table     Table    @relation(fields: [tableId], references: [id], onDelete: Cascade)
 
   @@index([tableId])
 }
 
-// A cell = value for (record x field)
 model Cell {
-  id String @id @default(cuid())
+  id           String   @id @default(cuid())
+  recordId     String
+  fieldId      String
+  valueText    String?
+  valueNumber  Float?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  valueBoolean Boolean?
+  field        Field    @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  record       Record   @relation(fields: [recordId], references: [id], onDelete: Cascade)
 
-  record   Record @relation(fields: [recordId], references: [id], onDelete: Cascade)
-  recordId String
-
-  field   Field  @relation(fields: [fieldId], references: [id], onDelete: Cascade)
-  fieldId String
-
-  // Only one of these is used depending on Field.type
-  valueText   String?
-  valueNumber Float?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // each (record, field) pair should have only one cell
   @@unique([recordId, fieldId])
-  // indexes for searching/filtering/sorting
   @@index([fieldId, valueText])
   @@index([fieldId, valueNumber])
 }
 
-// Saved configuration for a View (filters, sorts, hidden columns, search)
 model View {
-  id   String @id @default(cuid())
-  name String
-
-  table   Table  @relation(fields: [tableId], references: [id], onDelete: Cascade)
-  tableId String
-  order   Int    @default(0)
-
-  // JSON structure something like:
-  // {
-  //   "filters": [{ "fieldId": "...", "op": "gt", "value": 10 }],
-  //   "sorts": [{ "fieldId": "...", "direction": "asc" }],
-  //   "hiddenFieldIds": ["..."],
-  //   "searchQuery": "foo"
-  // }
-  config Json
-
+  id        String   @id @default(cuid())
+  name      String
+  tableId   String
+  config    Json
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  order     Int      @default(0)
+  table     Table    @relation(fields: [tableId], references: [id], onDelete: Cascade)
+}
+
+enum FieldType {
+  TEXT
+  NUMBER
+  BOOLEAN
 }

@@ -19,13 +19,14 @@ type TableById = RouterOutputs["table"]["byId"];
 type TableField = TableById["fields"][number];
 type TableRecord = TableById["records"][number];
 type TableCell = TableRecord["cells"][number];
+type CellValue = string | number | boolean | null;
 type PendingCellEdit = {
   recordId: string;
   fieldId: string;
-  value: string | number | null;
+  value: CellValue;
 };
 type CellUpdateQueueEntry = {
-  pending: string | number | null;
+  pending: CellValue;
   inFlight: boolean;
 };
 
@@ -35,17 +36,19 @@ const makeEmptyCell = (recordId: string, fieldId: string): TableCell => ({
   fieldId,
   valueText: null,
   valueNumber: null,
+  valueBoolean: null,
 });
 const buildOptimisticCell = (
   recordId: string,
   fieldId: string,
-  value: string | number | null,
+  value: CellValue,
 ): TableCell => ({
   id: `temp-cell-${recordId}-${fieldId}`,
   recordId,
   fieldId,
-  valueText: typeof value === "number" ? null : value ?? null,
+  valueText: typeof value === "string" ? value : null,
   valueNumber: typeof value === "number" ? value : null,
+  valueBoolean: typeof value === "boolean" ? value : null,
 });
 
 const OPTIMISTIC_FIELD_PREFIX = "temp-field-";
@@ -129,7 +132,7 @@ function BaseClientContent({
   const persistedViewMapRef = useRef<Record<string, string>>({});
   const pendingCellEditsRef = useRef<Map<string, PendingCellEdit>>(new Map());
   const cellUpdateQueuesRef = useRef<Map<string, CellUpdateQueueEntry>>(new Map());
-  const lastLocalCellValueRef = useRef<Map<string, string | number | null>>(new Map());
+  const lastLocalCellValueRef = useRef<Map<string, CellValue>>(new Map());
   const optimisticRecordIdMapRef = useRef<Map<string, string>>(new Map());
   const optimisticFieldIdMapRef = useRef<Map<string, string>>(new Map());
   const initialPrefetchingRef = useRef(false);
@@ -193,8 +196,12 @@ function BaseClientContent({
   );
 
   const normalizeLocalValue = useCallback(
-    (val: string | number | null | undefined) =>
-      val === null || val === undefined ? null : typeof val === "number" ? val : String(val),
+    (val: CellValue | undefined) =>
+      val === null || val === undefined
+        ? null
+        : typeof val === "number" || typeof val === "boolean"
+          ? val
+          : String(val),
     [],
   );
 
@@ -203,7 +210,7 @@ function BaseClientContent({
     const targetTableId = tableId ?? activeTableId;
     if (!targetTableId) return;
     const storageKey = buildPendingEditsStorageKey(targetTableId);
-    const payload: { recordId: string; fieldId: string; value: string | number | null }[] = [];
+    const payload: { recordId: string; fieldId: string; value: CellValue }[] = [];
     dirtyCellKeysRef.current.forEach((key) => {
       const [recordId, fieldId] = key.split(":");
       if (!recordId || !fieldId) return;
@@ -767,7 +774,7 @@ function BaseClientContent({
         if (!record) continue;
         const cell = record.cells.find((c) => c.fieldId === fieldId);
         if (!cell) return null;
-        return normalizeLocalValue(cell.valueNumber ?? cell.valueText);
+        return normalizeLocalValue(cell.valueBoolean ?? cell.valueNumber ?? cell.valueText);
       }
       return undefined;
     },
@@ -960,7 +967,7 @@ function BaseClientContent({
       const optimisticCell = buildOptimisticCell(
         variables.recordId,
         variables.fieldId,
-        variables.value as string | number | null,
+        variables.value as CellValue,
       );
       applyCellToCache(variables.recordId, optimisticCell);
 
@@ -974,10 +981,14 @@ function BaseClientContent({
     onSuccess: (cell) => {
       const key = makePendingKey(cell.recordId, cell.fieldId);
       const queued = cellUpdateQueuesRef.current.get(key);
-      const normalize = (val: string | number | null | undefined) =>
-        val === null || val === undefined ? null : typeof val === "number" ? val : String(val);
+      const normalize = (val: CellValue | undefined) =>
+        val === null || val === undefined
+          ? null
+          : typeof val === "number" || typeof val === "boolean"
+            ? val
+            : String(val);
       const queuedVal = normalize(queued?.pending);
-      const serverVal = normalize(cell.valueNumber ?? cell.valueText);
+      const serverVal = normalize(cell.valueBoolean ?? cell.valueNumber ?? cell.valueText);
       const desiredVal = normalize(lastLocalCellValueRef.current.get(key));
 
       if (queued && queuedVal !== serverVal) {
@@ -1008,6 +1019,7 @@ function BaseClientContent({
         fieldId: cell.fieldId,
         valueText: cell.valueText,
         valueNumber: cell.valueNumber,
+        valueBoolean: cell.valueBoolean,
       });
     },
   });
@@ -1062,7 +1074,7 @@ function BaseClientContent({
   );
 
   const enqueueCellUpdate = useCallback(
-    (recordId: string, fieldId: string, value: string | number | null) => {
+    (recordId: string, fieldId: string, value: CellValue) => {
       const key = makePendingKey(recordId, fieldId);
       const current = cellUpdateQueuesRef.current.get(key);
       cellUpdateQueuesRef.current.set(key, { pending: value, inFlight: current?.inFlight ?? false });
@@ -1084,7 +1096,7 @@ function BaseClientContent({
   );
 
   const handleLocalEditValue = useCallback(
-    (recordId: string, fieldId: string, value: string | number | null | undefined) => {
+    (recordId: string, fieldId: string, value: CellValue | undefined) => {
       const key = makePendingKey(recordId, fieldId);
       const normalized = normalizeLocalValue(value);
       lastLocalCellValueRef.current.set(key, normalized);
@@ -1106,7 +1118,7 @@ function BaseClientContent({
     hydratedPendingEditsRef.current.add(activeTableId);
     if (typeof window === "undefined") return;
     const storageKey = buildPendingEditsStorageKey(activeTableId);
-    let stored: { recordId: string; fieldId: string; value: string | number | null }[] = [];
+    let stored: { recordId: string; fieldId: string; value: CellValue }[] = [];
     try {
       const raw = window.localStorage.getItem(storageKey);
       if (!raw) return;
@@ -1165,7 +1177,7 @@ function BaseClientContent({
   );
 
   const queuePendingCellEdit = useCallback(
-    (recordId: string, fieldId: string, value: string | number | null) => {
+    (recordId: string, fieldId: string, value: CellValue) => {
       pendingCellEditsRef.current.set(makePendingKey(recordId, fieldId), {
         recordId,
         fieldId,
@@ -1196,7 +1208,7 @@ function BaseClientContent({
   }, [enqueueCellUpdate, logPendingState, resolveFieldId, resolveRecordId]);
 
   const handleCellChange = useCallback(
-    (recordId: string, fieldId: string, value: string | number | null) => {
+    (recordId: string, fieldId: string, value: CellValue) => {
       if (!activeTableId) return;
 
       const resolvedRecordId = resolveRecordId(recordId);
@@ -1364,6 +1376,7 @@ function BaseClientContent({
           fieldId: f.id,
           valueText: null,
           valueNumber: null,
+          valueBoolean: null,
         })),
       };
 

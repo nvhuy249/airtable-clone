@@ -209,17 +209,18 @@ exports.Prisma.CellScalarFieldEnum = {
   valueText: 'valueText',
   valueNumber: 'valueNumber',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
+  updatedAt: 'updatedAt',
+  valueBoolean: 'valueBoolean'
 };
 
 exports.Prisma.ViewScalarFieldEnum = {
   id: 'id',
   name: 'name',
   tableId: 'tableId',
-  order: 'order',
   config: 'config',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
+  updatedAt: 'updatedAt',
+  order: 'order'
 };
 
 exports.Prisma.SortOrder = {
@@ -248,7 +249,8 @@ exports.Prisma.JsonNullValueFilter = {
 };
 exports.FieldType = exports.$Enums.FieldType = {
   TEXT: 'TEXT',
-  NUMBER: 'NUMBER'
+  NUMBER: 'NUMBER',
+  BOOLEAN: 'BOOLEAN'
 };
 
 exports.Prisma.ModelName = {
