@@ -46,6 +46,7 @@ type CellShape = {
 
 type RecordShape = {
   id: string;
+  position?: number | null;
   cells: CellShape[];
 };
 
@@ -204,7 +205,9 @@ const DEFAULT_RECORDS: RecordShape[] = Array.from({ length: DEFAULT_RECORD_COUNT
 function buildRows(fields: FieldShape[], records: RecordShape[], startIndex = 0): RowData[] {
   const sortedFields = [...fields].sort((a, b) => a.order - b.order);
   return records.map((record, idx) => {
-    const row: RowData = { __recordId: record.id, __rowIndex: startIndex + idx };
+    const rowIndex =
+      typeof record.position === "number" ? record.position : startIndex + idx;
+    const row: RowData = { __recordId: record.id, __rowIndex: rowIndex };
     sortedFields.forEach((field) => {
       const cell = record.cells.find((c) => c.fieldId === field.id);
       const value = readCellValue(field, cell);
@@ -1221,26 +1224,7 @@ export default function BaseTable({
 
   useEffect(() => {
     if (scrollElement && data.length > 0) {
-      // Force the virtualizer to recalculate by notifying it of a scroll
-      const element = scrollContainerRef.current;
-      if (element) {
-        // Save current scroll position
-        const currentScroll = element.scrollTop;
-        // Trigger recalculation by scrolling slightly
-        element.scrollTop = currentScroll + 0.1;
-        element.scrollTop = currentScroll;
-      }
-    }
-  }, [data.length, scrollElement]);
-
-  useEffect(() => {
-    if (scrollElement && data.length > 0) {
-      // Critical: Force virtualizer to recalculate total size
       rowVirtualizer?.measure();
-      // Also force it to recalculate its internal measurements
-      if (typeof rowVirtualizer?.calculateRange === 'function') {
-        rowVirtualizer.calculateRange();
-      }
     }
   }, [data.length, scrollElement, rowVirtualizer]);
 
@@ -1261,19 +1245,39 @@ export default function BaseTable({
   }, [data.length, hasMore, isFetchingMore, onLoadMore, recordsStartIndex, virtualRows]);
 
   useEffect(() => {
-    if (!onRequestRange || !virtualRows.length) return;
-    const firstVisibleIndex = virtualRows[0]!.index;
-    const lastVisibleIndex = virtualRows[virtualRows.length - 1]!.index;
+    if (!onRequestRange || !scrollElement) return;
+    const firstVisibleIndex = Math.max(
+      0,
+      Math.floor(scrollElement.scrollTop / VIRTUAL_ROW_HEIGHT),
+    );
+    const lastVisibleIndex = Math.min(
+      virtualRowCount - 1,
+      Math.ceil(
+        (scrollElement.scrollTop + scrollElement.clientHeight) /
+          VIRTUAL_ROW_HEIGHT,
+      ),
+    );
     const loadedStart = recordsStartIndex;
     const loadedEnd = recordsStartIndex + data.length - 1;
 
-    const isOutsideLoadedWindow =
-      firstVisibleIndex < loadedStart || lastVisibleIndex > loadedEnd;
+    const isNearLoadedWindowEdge =
+      firstVisibleIndex < loadedStart + RANGE_PREFETCH_ROWS ||
+      lastVisibleIndex > loadedEnd - RANGE_PREFETCH_ROWS;
 
-    if (isOutsideLoadedWindow) {
-      onRequestRange(firstVisibleIndex, lastVisibleIndex);
+    if (isNearLoadedWindowEdge) {
+      onRequestRange(
+        Math.max(0, firstVisibleIndex - RANGE_PREFETCH_ROWS),
+        Math.min(virtualRowCount - 1, lastVisibleIndex + RANGE_PREFETCH_ROWS),
+      );
     }
-  }, [data.length, onRequestRange, recordsStartIndex, virtualRowCount, virtualRows]);
+  }, [
+    data.length,
+    onRequestRange,
+    recordsStartIndex,
+    scrollElement,
+    virtualRowCount,
+    virtualRows,
+  ]);
 
   // useEffect(() => {
   //   console.log('Virtualization Status:', {
@@ -1519,7 +1523,7 @@ export default function BaseTable({
               const isActiveRow = activeCell?.rowIndex === absoluteIndex;
               return (
                 <tr
-                  key={row.id}
+                  key={recordId}
                   className={rowHovered || isActiveRow ? "bg-[#f8fafc]" : "bg-white"}
                   onMouseEnter={() => setHoveredRow(absoluteIndex)}
                   onMouseLeave={() => setHoveredRow(null)}

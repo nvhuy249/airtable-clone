@@ -344,7 +344,7 @@ function BaseClientContent({
   const [appliedSorts, setAppliedSorts] = useState<SortItem[]>([]);
   const [globalSearch, setGlobalSearch] = useState("");
   const RECORD_PAGE_SIZE = 500;
-  const RECORD_WINDOW_PAGE_SIZE = 300;
+  const RECORD_WINDOW_PAGE_SIZE = 900;
   const INITIAL_EAGER_RECORD_TARGET = 1_500;
   const filterDebounceHandleRef = useRef<number | null>(null);
 
@@ -401,8 +401,11 @@ function BaseClientContent({
   } | null>(null);
   const [isFetchingRecordsWindow, setIsFetchingRecordsWindow] = useState(false);
   const recordsWindowRef = useRef<typeof recordsWindow>(null);
-  const inFlightRecordWindowOffsetRef = useRef<number | null>(null);
-  const queuedRecordWindowOffsetRef = useRef<number | null>(null);
+  const latestRecordWindowRequestIdRef = useRef(0);
+  const requestedRecordWindowOffsetRef = useRef<number | null>(null);
+  const queuedRecordWindowRangeRef = useRef<{ startIndex: number; endIndex: number } | null>(
+    null,
+  );
   const emptyRecordWindowOffsetsRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
@@ -423,8 +426,9 @@ function BaseClientContent({
   useEffect(() => {
     setRecordsWindow(null);
     recordsWindowRef.current = null;
-    inFlightRecordWindowOffsetRef.current = null;
-    queuedRecordWindowOffsetRef.current = null;
+    latestRecordWindowRequestIdRef.current += 1;
+    requestedRecordWindowOffsetRef.current = null;
+    queuedRecordWindowRangeRef.current = null;
     emptyRecordWindowOffsetsRef.current.clear();
     setIsFetchingRecordsWindow(false);
   }, [recordsQueryInput]);
@@ -865,6 +869,13 @@ function BaseClientContent({
         return;
       }
 
+      if (!recordsWindowRef.current && startIndex < records.length) {
+        if (hasMore && !isFetchingMore) {
+          void fetchNextPage();
+        }
+        return;
+      }
+
       const currentWindow = recordsWindowRef.current;
       if (
         currentWindow &&
@@ -877,71 +888,66 @@ function BaseClientContent({
       const requestedMidpoint = Math.floor((startIndex + endIndex) / 2);
       const requestedOffset = Math.max(
         0,
-        Math.floor(
-          (requestedMidpoint - Math.floor(RECORD_WINDOW_PAGE_SIZE / 2)) /
-            RECORD_WINDOW_PAGE_SIZE,
-        ) * RECORD_WINDOW_PAGE_SIZE,
+        requestedMidpoint - Math.floor(RECORD_WINDOW_PAGE_SIZE / 2),
       );
       if (emptyRecordWindowOffsetsRef.current.has(requestedOffset)) return;
 
-      const fetchWindow = (offset: number) => {
-        if (inFlightRecordWindowOffsetRef.current !== null) {
-          if (inFlightRecordWindowOffsetRef.current !== offset) {
-            queuedRecordWindowOffsetRef.current = offset;
+      const pendingOffset = requestedRecordWindowOffsetRef.current;
+      if (pendingOffset !== null) {
+        const pendingEnd = pendingOffset + RECORD_WINDOW_PAGE_SIZE;
+        if (startIndex >= pendingOffset && endIndex < pendingEnd) return;
+        queuedRecordWindowRangeRef.current = { startIndex, endIndex };
+        return;
+      }
+
+      const requestId = latestRecordWindowRequestIdRef.current + 1;
+      latestRecordWindowRequestIdRef.current = requestId;
+      requestedRecordWindowOffsetRef.current = requestedOffset;
+      setIsFetchingRecordsWindow(true);
+
+      utils.client.table.records
+        .query({
+          ...recordsQueryInput,
+          limit: RECORD_WINDOW_PAGE_SIZE,
+          offset: requestedOffset,
+        })
+        .then((page) => {
+          if (latestRecordWindowRequestIdRef.current !== requestId) return;
+
+          if (page.records.length === 0) {
+            emptyRecordWindowOffsetsRef.current.add(requestedOffset);
+            return;
           }
-          setIsFetchingRecordsWindow(true);
-          return;
-        }
 
-        inFlightRecordWindowOffsetRef.current = offset;
-        setIsFetchingRecordsWindow(true);
+          const nextWindow = {
+            offset: page.offset,
+            records: page.records,
+          };
 
-        utils.client.table.records
-          .query({
-            ...recordsQueryInput,
-            limit: RECORD_WINDOW_PAGE_SIZE,
-            offset,
-          })
-          .then((page) => {
-            if (page.records.length === 0) {
-              emptyRecordWindowOffsetsRef.current.add(offset);
-              return;
-            }
+          recordsWindowRef.current = nextWindow;
+          setRecordsWindow(nextWindow);
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          if (latestRecordWindowRequestIdRef.current !== requestId) return;
+          requestedRecordWindowOffsetRef.current = null;
+          setIsFetchingRecordsWindow(false);
 
-            if (
-              queuedRecordWindowOffsetRef.current !== null &&
-              queuedRecordWindowOffsetRef.current !== offset
-            ) {
-              return;
-            }
-
-            const nextWindow = {
-              offset: page.offset,
-              records: page.records,
-            };
-
-            recordsWindowRef.current = nextWindow;
-            setRecordsWindow(nextWindow);
-          })
-          .catch(() => undefined)
-          .finally(() => {
-            inFlightRecordWindowOffsetRef.current = null;
-            const queuedOffset = queuedRecordWindowOffsetRef.current;
-            queuedRecordWindowOffsetRef.current = null;
-
-            if (queuedOffset !== null && queuedOffset !== offset) {
-              window.setTimeout(() => fetchWindow(queuedOffset), 0);
-              return;
-            }
-
-            setIsFetchingRecordsWindow(false);
-          });
-      };
-
-      fetchWindow(requestedOffset);
+          const queuedRange = queuedRecordWindowRangeRef.current;
+          queuedRecordWindowRangeRef.current = null;
+          if (queuedRange) {
+            window.setTimeout(
+              () => handleRequestRecordRange(queuedRange.startIndex, queuedRange.endIndex),
+              0,
+            );
+          }
+        });
     },
     [
       RECORD_WINDOW_PAGE_SIZE,
+      fetchNextPage,
+      hasMore,
+      isFetchingMore,
       records.length,
       recordsQueryInput,
       utils.client.table.records,
@@ -1477,6 +1483,7 @@ function BaseClientContent({
 
       const optimisticRecord = {
         id: optimisticId,
+        position: totalCount,
         cells: fields.map((f) => ({
           id: "temp-cell-" + optimisticId + "-" + f.id,
           recordId: optimisticId,
@@ -1539,7 +1546,9 @@ function BaseClientContent({
           pages: prev.pages.map((page) => ({
             ...page,
             records: page.records.map((r) =>
-              r.id === ctx.optimisticId ? { ...r, id: record.id } : r
+              r.id === ctx.optimisticId
+                ? { ...r, id: record.id, position: record.position }
+                : r
             ),
           })),
         };

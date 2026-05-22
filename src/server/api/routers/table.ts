@@ -364,10 +364,11 @@ export const tableRouter = createTRPCRouter({
             },
           }),
           tx.record.createManyAndReturn({
-            data: Array.from({ length: DEFAULT_RECORD_COUNT }).map(() => ({
+            data: Array.from({ length: DEFAULT_RECORD_COUNT }).map((_, index) => ({
               tableId: table.id,
+              position: index,
             })),
-            select: { id: true, createdAt: true },
+            select: { id: true, position: true, createdAt: true },
           }),
         ]);
 
@@ -631,6 +632,7 @@ export const tableRouter = createTRPCRouter({
           : null;
       const orderedRecords = sliced.map((row) => ({
         id: row.id,
+        position: row.position,
         cells: row.cells,
       }));
 
@@ -721,10 +723,10 @@ export const tableRouter = createTRPCRouter({
           tableId: table.id,
           position: await ctx.db.record.count({ where: { tableId: table.id } }),
         },
-        select: { id: true },
+        select: { id: true, position: true },
       });
 
-      return { record: { id: record.id }, cells: [] };
+      return { record: { id: record.id, position: record.position }, cells: [] };
     }),
 
   updateCell: protectedProcedure
