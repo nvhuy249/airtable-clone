@@ -198,6 +198,7 @@ exports.Prisma.FieldScalarFieldEnum = {
 exports.Prisma.RecordScalarFieldEnum = {
   id: 'id',
   tableId: 'tableId',
+  position: 'position',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 };

@@ -14,14 +14,54 @@ import {
 
 const NUMERIC_REGEX = "^-?\\d+(\\.\\d+)?$";
 
-const decodeCursor = (cursor?: string | null) => {
-  if (!cursor) return 0;
-  const decoded = Number(Buffer.from(cursor, "base64").toString("utf8"));
-  return Number.isFinite(decoded) && decoded > 0 ? decoded : 0;
+type RecordCursor =
+  | { type: "offset"; offset: number }
+  | { type: "keyset"; position: number; id: string };
+
+const decodeCursor = (cursor?: string | null): RecordCursor | null => {
+  if (!cursor) return null;
+  const decoded = Buffer.from(cursor, "base64").toString("utf8");
+  const legacyOffset = Number(decoded);
+  if (Number.isFinite(legacyOffset) && legacyOffset > 0) {
+    return { type: "offset", offset: legacyOffset };
+  }
+
+  try {
+    const parsed = JSON.parse(decoded) as Partial<RecordCursor>;
+    if (
+      parsed.type === "keyset" &&
+      typeof parsed.position === "number" &&
+      typeof parsed.id === "string"
+    ) {
+      return { type: "keyset", position: parsed.position, id: parsed.id };
+    }
+    if (
+      parsed.type === "offset" &&
+      typeof parsed.offset === "number" &&
+      Number.isFinite(parsed.offset) &&
+      parsed.offset > 0
+    ) {
+      return { type: "offset", offset: parsed.offset };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 };
 
 const encodeCursor = (offset: number) =>
-  Buffer.from(String(offset), "utf8").toString("base64");
+  Buffer.from(JSON.stringify({ type: "offset", offset }), "utf8").toString("base64");
+
+const encodeKeysetCursor = (position: number, id: string) =>
+  Buffer.from(
+    JSON.stringify({
+      type: "keyset",
+      position,
+      id,
+    }),
+    "utf8",
+  ).toString("base64");
 
 const buildTextValueExpr = (alias: string) =>
   `LOWER(COALESCE(
@@ -210,7 +250,7 @@ const buildSortClause = (
     }
   });
 
-  orderSegments.push('r."createdAt" ASC', "r.id ASC");
+  orderSegments.push('r."position" ASC', "r.id ASC");
 
   return {
     joinClause: joinSegments.length ? joinSegments.join("\n") : "",
@@ -393,8 +433,9 @@ export const tableRouter = createTRPCRouter({
     .input(
       z.object({
         tableId: z.string(),
-        limit: z.number().int().min(1).max(200).default(50),
+        limit: z.number().int().min(1).max(1_000).default(100),
         cursor: z.string().nullish(),
+        offset: z.number().int().min(0).optional(),
         filters: viewFiltersSchema.default({ connector: "and", conditions: [] }),
         sorts: z.array(viewSortSchema).default([]),
         globalSearch: z.string().optional(),
@@ -432,7 +473,7 @@ export const tableRouter = createTRPCRouter({
       const providedConfig = input.viewConfig ? parseViewConfig(input.viewConfig) : null;
       let effectiveConfig = providedConfig ?? parseViewConfig(baseConfig);
 
-      if (input.viewId) {
+      if (input.viewId && !providedConfig) {
         const view = await ctx.db.view.findFirst({
           where: {
             id: input.viewId,
@@ -443,11 +484,7 @@ export const tableRouter = createTRPCRouter({
 
         if (view) {
           const storedConfig = parseViewConfig(view.config);
-          // Prefer the latest client-side view config (for instant filter/sort UX),
-          // but fall back to the persisted view for anything the client didn't send.
-          effectiveConfig = providedConfig
-            ? { ...storedConfig, ...providedConfig }
-            : storedConfig;
+          effectiveConfig = storedConfig;
         }
         // If view is missing or unauthorized, silently fall back to provided config/defaults.
       }
@@ -455,10 +492,17 @@ export const tableRouter = createTRPCRouter({
       const hiddenFieldIds = (effectiveConfig.hiddenFieldIds ?? []).filter((id) => fieldIds.has(id));
 
       const limit = input.limit ?? 100;
-      const offset = decodeCursor(input.cursor) ?? 0;
+      const decodedCursor = decodeCursor(input.cursor);
+      const canUseKeyset =
+        input.offset === undefined &&
+        decodedCursor?.type !== "offset" &&
+        (effectiveConfig.sorts ?? []).length === 0;
+      const keysetCursor =
+        canUseKeyset && decodedCursor?.type === "keyset" ? decodedCursor : null;
+      const offset = input.offset ?? (decodedCursor?.type === "offset" ? decodedCursor.offset : 0);
       const limitPlusOne = limit + 1;
 
-      const baseParams: unknown[] = [ctx.session.user.id, input.tableId];
+      const baseParams: unknown[] = [input.tableId];
       const addBaseParam = (val: unknown) => {
         baseParams.push(val);
         return `$${baseParams.length}`;
@@ -491,65 +535,110 @@ export const tableRouter = createTRPCRouter({
 
       const { joinClause, orderClause } = buildSortClause(effectiveConfig.sorts, addFetchParam, fieldLookup);
       const limitParam = addFetchParam(limitPlusOne);
-      const offsetParam = addFetchParam(offset);
+      const shouldCountTotal = offset === 0 && !keysetCursor;
+      const keysetClause = keysetCursor
+        ? (() => {
+            const positionParam = addFetchParam(keysetCursor.position);
+            const idParam = addFetchParam(keysetCursor.id);
+            return `WHERE (r."position", r.id) > (${positionParam}, ${idParam})`;
+          })()
+        : "";
+      const positionWindowClause =
+        input.offset !== undefined && (effectiveConfig.sorts ?? []).length === 0
+          ? `AND r."position" >= ${addFetchParam(offset)}`
+          : "";
+      const offsetParam = canUseKeyset || positionWindowClause ? null : addFetchParam(offset);
+      const hiddenCellClause = hiddenFieldIds.length
+        ? `AND c."fieldId" <> ALL(${addFetchParam(hiddenFieldIds)}::text[])`
+        : "";
 
       const recordsSql = `
         WITH filtered AS (
-          SELECT r.id, r."createdAt"
+          SELECT r.id, r."position"
           FROM "Record" r
-          JOIN "Table" t ON t.id = r."tableId"
-          JOIN "Base" b ON b.id = t."baseId"
-          WHERE b."ownerId" = $1 AND r."tableId" = $2
+          WHERE r."tableId" = $1
+          ${positionWindowClause}
           ${filterClause ? `AND (${filterClause})` : ""}
           ${searchClause ? `AND (${searchClause})` : ""}
-        ),
+        )
+        ${
+          shouldCountTotal
+            ? `,
+        counted AS (
+          SELECT COUNT(*)::int as total_count FROM filtered
+        )`
+            : ""
+        },
         sorted AS (
-          SELECT r.id, COUNT(*) OVER() as total_count
+          SELECT r.id, r."position", ${
+            shouldCountTotal ? "counted.total_count" : "NULL::int as total_count"
+          }
           FROM filtered r
+          ${shouldCountTotal ? "CROSS JOIN counted" : ""}
           ${joinClause}
+          ${keysetClause}
           ORDER BY ${orderClause}
           LIMIT ${limitParam}
-          OFFSET ${offsetParam}
+          ${offsetParam && !positionWindowClause ? `OFFSET ${offsetParam}` : ""}
         )
-        SELECT id, total_count FROM sorted;
+        SELECT
+          sorted.id,
+          sorted."position",
+          sorted.total_count,
+          COALESCE(cells.cells, '[]'::json) AS cells
+        FROM sorted
+        LEFT JOIN LATERAL (
+          SELECT json_agg(
+            json_build_object(
+              'id', c.id,
+              'recordId', c."recordId",
+              'fieldId', c."fieldId",
+              'valueText', c."valueText",
+              'valueNumber', c."valueNumber",
+              'valueBoolean', c."valueBoolean"
+            )
+          ) AS cells
+          FROM "Cell" c
+          WHERE c."recordId" = sorted.id
+          ${hiddenCellClause}
+        ) cells ON TRUE;
       `;
 
-      const rows = await ctx.db.$queryRawUnsafe<{ id: string; total_count: number }[]>(
-        recordsSql,
-        ...fetchParams,
-      );
+      const rows = await ctx.db.$queryRawUnsafe<
+        {
+          id: string;
+          position: number;
+          total_count: number | null;
+          cells: {
+            id: string;
+            recordId: string;
+            fieldId: string;
+            valueText: string | null;
+            valueNumber: number | null;
+            valueBoolean: boolean | null;
+          }[];
+        }[]
+      >(recordsSql, ...fetchParams);
 
       const total = rows[0]?.total_count ?? 0;
       const sliced = rows.slice(0, limit);
-      const nextCursor = rows.length > limit ? encodeCursor(offset + limit) : null;
-      const recordIds = sliced.map((row) => row.id);
-
-      const records = await ctx.db.record.findMany({
-        where: { id: { in: recordIds } },
-        select: {
-          id: true,
-          cells: {
-            where: hiddenFieldIds.length ? { fieldId: { notIn: hiddenFieldIds } } : undefined,
-            select: {
-              id: true,
-              recordId: true,
-              fieldId: true,
-              valueText: true,
-              valueNumber: true,
-              valueBoolean: true,
-            },
-          },
-        },
-      });
-      const recordMap = new Map(records.map((r) => [r.id, r]));
-      const orderedRecords = recordIds
-        .map((id) => recordMap.get(id))
-        .filter((r): r is NonNullable<typeof r> => Boolean(r));
+      const lastRow = sliced.at(-1);
+      const nextCursor =
+        rows.length > limit && lastRow
+          ? canUseKeyset
+            ? encodeKeysetCursor(lastRow.position, lastRow.id)
+            : encodeCursor(offset + limit)
+          : null;
+      const orderedRecords = sliced.map((row) => ({
+        id: row.id,
+        cells: row.cells,
+      }));
 
       return {
         records: orderedRecords,
         nextCursor,
         total,
+        offset,
       };
     }),
 
@@ -630,6 +719,7 @@ export const tableRouter = createTRPCRouter({
       const record = await ctx.db.record.create({
         data: {
           tableId: table.id,
+          position: await ctx.db.record.count({ where: { tableId: table.id } }),
         },
         select: { id: true },
       });
@@ -814,6 +904,7 @@ export const tableRouter = createTRPCRouter({
       z.object({
         tableId: z.string(),
         count: z.number().int().min(1).max(100_000).default(100_000),
+        // Kept for older callers; bulk seeding now happens in a single DB statement.
         chunkSize: z.number().int().min(1).max(5_000).optional(),
       }),
     )
@@ -838,52 +929,70 @@ export const tableRouter = createTRPCRouter({
       }
 
       const totalToInsert = Math.min(input.count, 100_000);
-      const chunkSize = Math.min(input.chunkSize ?? 1_000, 5_000);
-      let inserted = 0;
+      const result = await ctx.db.$queryRawUnsafe<{ inserted: number; cells: number }[]>(
+        `
+          WITH existing AS (
+            SELECT COUNT(*)::integer AS count
+            FROM "Record"
+            WHERE "tableId" = $1
+          ),
+          inserted_records AS (
+            INSERT INTO "Record" ("id", "tableId", "position", "createdAt", "updatedAt")
+            SELECT
+              'rec_' || substr(md5($1 || ':' || gs.n::text || ':' || clock_timestamp()::text || ':' || random()::text), 1, 24),
+              $1,
+              existing.count + gs.n - 1,
+              NOW(),
+              NOW()
+            FROM generate_series(1, $2::integer) AS gs(n)
+            CROSS JOIN existing
+            RETURNING id
+          ),
+          inserted_cells AS (
+            INSERT INTO "Cell" (
+              "id",
+              "recordId",
+              "fieldId",
+              "valueText",
+              "valueNumber",
+              "valueBoolean",
+              "createdAt",
+              "updatedAt"
+            )
+            SELECT
+              'cell_' || substr(md5(ir.id || ':' || f.id || ':' || random()::text), 1, 24),
+              ir.id,
+              f.id,
+              CASE
+                WHEN f.type = 'NUMBER' THEN NULL
+                WHEN lower(f.name) LIKE '%name%' THEN 'Seed Name ' || substr(ir.id, 5, 8)
+                ELSE 'Seed value ' || substr(md5(ir.id || ':' || f.id), 1, 12)
+              END,
+              CASE
+                WHEN f.type = 'NUMBER' THEN floor(random() * 1000 + 1)::double precision
+                ELSE NULL
+              END,
+              CASE
+                WHEN f.type = 'BOOLEAN' THEN random() < 0.5
+                ELSE NULL
+              END,
+              NOW(),
+              NOW()
+            FROM inserted_records ir
+            CROSS JOIN "Field" f
+            WHERE f."tableId" = $1
+            ON CONFLICT ("recordId", "fieldId") DO NOTHING
+            RETURNING 1
+          )
+          SELECT
+            (SELECT COUNT(*)::int FROM inserted_records) AS inserted,
+            (SELECT COUNT(*)::int FROM inserted_cells) AS cells;
+        `,
+        table.id,
+        totalToInsert,
+      );
 
-      while (inserted < totalToInsert) {
-        const batchSize = Math.min(chunkSize, totalToInsert - inserted);
-
-        const newRecords = await ctx.db.record.createManyAndReturn({
-          data: Array.from({ length: batchSize }).map(() => ({
-            tableId: table.id,
-          })),
-          select: { id: true },
-        });
-
-        if (newRecords.length === 0) break;
-
-        const cellsPayload = newRecords.flatMap((record) =>
-          fields.map((field) => ({
-            recordId: record.id,
-            fieldId: field.id,
-            valueText:
-              field.type === FieldType.NUMBER
-                ? null
-                : field.name.toLowerCase().includes("name")
-                  ? faker.person.fullName()
-                  : faker.lorem.sentence(4),
-            valueNumber:
-              field.type === FieldType.NUMBER
-                ? faker.number.int({ min: 1, max: 1000 })
-                : null,
-            valueBoolean:
-              field.type === FieldType.BOOLEAN
-                ? faker.datatype.boolean()
-                : null,
-          })),
-        );
-
-        if (cellsPayload.length) {
-          const CHUNK_SIZE = 1000;
-          for (let i = 0; i < cellsPayload.length; i += CHUNK_SIZE) {
-            const chunk = cellsPayload.slice(i, i + CHUNK_SIZE);
-            await ctx.db.cell.createMany({ data: chunk, skipDuplicates: true });
-          }
-        }
-
-        inserted += newRecords.length;
-      }
+      const inserted = Number(result[0]?.inserted ?? 0);
 
       const remaining = Math.max(totalToInsert - inserted, 0);
 

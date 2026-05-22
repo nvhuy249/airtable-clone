@@ -58,7 +58,8 @@ const displayValue = (value: ColumnValue) => {
   return String(value);
 };
 const VIRTUAL_ROW_HEIGHT = 32;
-const VIRTUAL_OVERSCAN = 8;
+const VIRTUAL_OVERSCAN = 16;
+const RANGE_PREFETCH_ROWS = 60;
 const FIRST_COL_STICKY_CLASS = "left-[56px]";
 const FIRST_SEPARATOR_LEFT_CLASS = "left-[236px]";
 const TEXT_COL_CLASS = "w-[180px] min-w-[180px]";
@@ -171,7 +172,9 @@ interface BaseTableProps {
   hasMore?: boolean;
   isFetchingMore?: boolean;
   onLoadMore?: () => void;
+  onRequestRange?: (startIndex: number, endIndex: number) => void;
   totalCount?: number;
+  recordsStartIndex?: number;
   onAddColumn?: (type?: FieldType, name?: string) => void;
   onRenameColumn?: (fieldId: string, name: string) => void;
   onAddRow?: () => void;
@@ -242,7 +245,9 @@ export default function BaseTable({
   hasMore = false,
   isFetchingMore = false,
   onLoadMore,
+  onRequestRange,
   totalCount,
+  recordsStartIndex = 0,
   onAddColumn,
   onRenameColumn,
   onAddRow,
@@ -295,6 +300,7 @@ export default function BaseTable({
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const appliedFieldsRef = useRef<FieldShape[]>(DEFAULT_FIELDS);
   const appliedRecordsRef = useRef<RecordShape[]>(DEFAULT_RECORDS);
+  const appliedRecordsStartIndexRef = useRef(0);
   const lastScrollTopRef = useRef<number>(0);
   const prevRecordCountRef = useRef<number>(DEFAULT_RECORDS.length);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -418,26 +424,29 @@ export default function BaseTable({
     const recordsChanged =
       appliedRecordsRef.current.length !== useRecords.length ||
       appliedRecordsRef.current.some((record, idx) => record !== useRecords[idx]);
+    const startIndexChanged = appliedRecordsStartIndexRef.current !== recordsStartIndex;
 
     // Bail early if nothing material changed to avoid render loops.
-    if (!fieldsChanged && !recordsChanged) return;
+    if (!fieldsChanged && !recordsChanged && !startIndexChanged) return;
 
     const prevRecords = appliedRecordsRef.current;
     const prevCount = prevRecordCountRef.current ?? 0;
 
     const isAppend =
       !fieldsChanged &&
+      !startIndexChanged &&
       prevRecords.length === prevCount &&
       useRecords.length > prevCount &&
       prevRecords.every((record, idx) => record === useRecords[idx]);
 
     appliedFieldsRef.current = useFields;
     appliedRecordsRef.current = useRecords;
+    appliedRecordsStartIndexRef.current = recordsStartIndex;
 
     // Full rebuild when fields change, records shrink/replace, or no append path.
-    const doFullRebuild = fieldsChanged || !isAppend;
+    const doFullRebuild = fieldsChanged || startIndexChanged || !isAppend;
     if (doFullRebuild) {
-      const nextData = buildRows(useFields, useRecords);
+      const nextData = buildRows(useFields, useRecords, recordsStartIndex);
       const previousRowsByRecordId = new Map(
         dataRef.current.map((row) => [row.__recordId, row]),
       );
@@ -473,7 +482,9 @@ export default function BaseTable({
       setActiveCell((prev) => {
         if (!prev) return prev;
         const columnStillExists = useFields.some((f) => f.id === prev.colId);
-        const rowStillExists = prev.rowIndex >= 0 && prev.rowIndex < useRecords.length;
+        const rowStillExists =
+          prev.rowIndex >= recordsStartIndex &&
+          prev.rowIndex < recordsStartIndex + useRecords.length;
         return columnStillExists && rowStillExists ? prev : null;
       });
       if (renamingFieldId && !useFields.some((f) => f.id === renamingFieldId)) {
@@ -489,9 +500,9 @@ export default function BaseTable({
     if (!newRecords.length) return;
 
     setLocalRecords((prev) => [...prev, ...newRecords]);
-    setData((prev) => [...prev, ...buildRows(useFields, newRecords, prevCount)]);
+    setData((prev) => [...prev, ...buildRows(useFields, newRecords, recordsStartIndex + prevCount)]);
     prevRecordCountRef.current = useRecords.length;
-  }, [fields, records, pendingFieldType, renamingFieldId]);
+  }, [fields, records, pendingFieldType, recordsStartIndex, renamingFieldId]);
 
   hoveredRowRef.current = hoveredRow;
   selectedRowsRef.current = selectedRows;
@@ -525,7 +536,7 @@ export default function BaseTable({
     const node = scrollContainerRef.current;
     if (!node) return;
     const distanceFromBottom = node.scrollHeight - (node.scrollTop + node.clientHeight);
-    if (distanceFromBottom <= VIRTUAL_ROW_HEIGHT * 70) {
+    if (distanceFromBottom <= VIRTUAL_ROW_HEIGHT * RANGE_PREFETCH_ROWS) {
       onLoadMore();
     }
 
@@ -826,6 +837,8 @@ export default function BaseTable({
   [visibleColumnOrder, updateActiveCell],
 );
 
+  const virtualRowCount = Math.max(data.length, totalCount ?? 0);
+
   const columns = useMemo<ColumnDef<RowData, ColumnValue>[]>(() => {
     const makeEditableCell = (key: string) => {
       const EditableCell = ({
@@ -874,13 +887,13 @@ export default function BaseTable({
           if (normalized === undefined) {
             const resetValue = displayValue(canonicalValue);
             setEditValue(resetValue);
-            setData((old) => {
-              const copy = [...old];
-              const current = copy[rowIndex];
-              if (!current) return old;
-              copy[rowIndex] = { ...current, [key]: resetValue };
-              return copy;
-            });
+          setData((old) => {
+            const copy = [...old];
+            const current = copy[rowIndex - recordsStartIndex];
+            if (!current) return old;
+            copy[rowIndex - recordsStartIndex] = { ...current, [key]: resetValue };
+            return copy;
+          });
             return;
           }
           if (valuesEqual(normalized ?? null, canonicalValue ?? null)) {
@@ -934,8 +947,10 @@ export default function BaseTable({
                   input.focus();
 
                   // 3. Ensure NO auto-select from double-click
-                  const length = input.value.length;
-                  input.setSelectionRange(length, length); // place caret at end
+                  if (input.type !== "number") {
+                    const length = input.value.length;
+                    input.setSelectionRange(length, length); // place caret at end
+                  }
                 });
               }}
             >
@@ -990,9 +1005,9 @@ export default function BaseTable({
                     }
                     setData((old) => {
                       const copy = [...old];
-                      const current = copy[rowIndex];
+                      const current = copy[rowIndex - recordsStartIndex];
                       if (!current) return old;
-                      copy[rowIndex] = { ...current, [key]: nextValue };
+                      copy[rowIndex - recordsStartIndex] = { ...current, [key]: nextValue };
                       return copy;
                     });
                     // For optimistic rows/fields, commit immediately so edits are queued before IDs swap.
@@ -1042,7 +1057,7 @@ export default function BaseTable({
                       e.key === "Enter" ||
                       e.key === "Escape"
                     ) {
-                      handleCellNavigation(e, rowIndex, colIndex, data.length, isEditing);
+                      handleCellNavigation(e, rowIndex, colIndex, virtualRowCount, isEditing);
                       return;
                     }
                   }}
@@ -1192,12 +1207,13 @@ export default function BaseTable({
     _onActiveCellIndexChange,
     computeAddFieldAnchor,
     openContextMenu,
-    data.length,
+    recordsStartIndex,
+    virtualRowCount,
   ]);
 
 
   const rowVirtualizer = useVirtualizerWithoutFlushSync({
-    count: data.length,
+    count: virtualRowCount,
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: () => VIRTUAL_ROW_HEIGHT,
     overscan: VIRTUAL_OVERSCAN,
@@ -1236,6 +1252,29 @@ export default function BaseTable({
 
   const virtualRows = rowVirtualizer.getVirtualItems();
 
+  useEffect(() => {
+    if (!onLoadMore || !hasMore || isFetchingMore || recordsStartIndex !== 0) return;
+    const lastVisibleIndex = virtualRows.at(-1)?.index ?? 0;
+    if (lastVisibleIndex >= data.length - RANGE_PREFETCH_ROWS) {
+      onLoadMore();
+    }
+  }, [data.length, hasMore, isFetchingMore, onLoadMore, recordsStartIndex, virtualRows]);
+
+  useEffect(() => {
+    if (!onRequestRange || !virtualRows.length) return;
+    const firstVisibleIndex = virtualRows[0]!.index;
+    const lastVisibleIndex = virtualRows[virtualRows.length - 1]!.index;
+    const loadedStart = recordsStartIndex;
+    const loadedEnd = recordsStartIndex + data.length - 1;
+
+    const isOutsideLoadedWindow =
+      firstVisibleIndex < loadedStart || lastVisibleIndex > loadedEnd;
+
+    if (isOutsideLoadedWindow) {
+      onRequestRange(firstVisibleIndex, lastVisibleIndex);
+    }
+  }, [data.length, onRequestRange, recordsStartIndex, virtualRowCount, virtualRows]);
+
   // useEffect(() => {
   //   console.log('Virtualization Status:', {
   //     'Total data rows': data.length,
@@ -1252,9 +1291,14 @@ export default function BaseTable({
     getCoreRowModel: getCoreRowModel(),
   });
   const allRows = table.getRowModel().rows;
-  const tableRows = virtualRows
-    .map((virtualRow) => allRows[virtualRow.index])
-    .filter((row): row is NonNullable<typeof row> => row !== undefined);
+  const tableRows = virtualRows.map((virtualRow) => ({
+    virtualRow,
+    row:
+      virtualRow.index >= recordsStartIndex &&
+      virtualRow.index < recordsStartIndex + allRows.length
+        ? allRows[virtualRow.index - recordsStartIndex]
+        : undefined,
+  }));
 
   const topSpacerHeight = virtualRows.length ? virtualRows[0]!.start : 0;
   const bottomSpacerHeight = virtualRows.length && rowVirtualizer
@@ -1347,7 +1391,7 @@ export default function BaseTable({
       >
         <div className={`pointer-events-none absolute top-0 bottom-0 ${FIRST_SEPARATOR_LEFT_CLASS} w-px bg-[#e6e8ef] z-0`} />
         <div className="pointer-events-none absolute top-0 left-0 right-0 h-8 bg-white z-0" />
-        {isLoading && (
+        {isLoading && data.length === 0 && (
           <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
             <div className="h-9 w-9 animate-spin rounded-full border-2 border-[#cfd4de] border-t-[#1b6ef3]" />
           </div>
@@ -1440,7 +1484,35 @@ export default function BaseTable({
                 <td colSpan={table.getVisibleLeafColumns().length} style={{ height: topSpacerHeight }} className="p-0 border-0" />
               </tr>
             )}
-            {tableRows.map((row) => {
+            {tableRows.map(({ virtualRow, row }) => {
+              if (!row) {
+                const absoluteIndex = virtualRow.index;
+                return (
+                  <tr
+                    key={`placeholder-${absoluteIndex}`}
+                    className="bg-white"
+                    style={{ height: VIRTUAL_ROW_HEIGHT }}
+                  >
+                    {table.getVisibleLeafColumns().map((column) => (
+                      <td
+                        key={`placeholder-${absoluteIndex}-${column.id}`}
+                        className={
+                          column.id === "addField"
+                            ? `${widthClass(column.id)} ${stickyClass(column.id)} bg-[#f9fafc] p-0 border-0`
+                            : `border-b ${column.id === "rowNumber" ? "" : "border-r"} border-[#e6e8ef] align-middle ${widthClass(column.id)} ${stickyClass(column.id)}`
+                        }
+                      >
+                        {column.id === "rowNumber" ? (
+                          <div className="flex items-center justify-center text-[12px] text-[#98a2b3]">
+                            {absoluteIndex + 1}
+                          </div>
+                        ) : null}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              }
+
               const absoluteIndex = row.original.__rowIndex ?? row.index;
               const rowHovered = hoveredRow === absoluteIndex;
               const recordId = row.original.__recordId;

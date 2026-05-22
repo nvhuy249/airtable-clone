@@ -10873,13 +10873,24 @@ export namespace Prisma {
 
   export type AggregateRecord = {
     _count: RecordCountAggregateOutputType | null
+    _avg: RecordAvgAggregateOutputType | null
+    _sum: RecordSumAggregateOutputType | null
     _min: RecordMinAggregateOutputType | null
     _max: RecordMaxAggregateOutputType | null
+  }
+
+  export type RecordAvgAggregateOutputType = {
+    position: number | null
+  }
+
+  export type RecordSumAggregateOutputType = {
+    position: number | null
   }
 
   export type RecordMinAggregateOutputType = {
     id: string | null
     tableId: string | null
+    position: number | null
     createdAt: Date | null
     updatedAt: Date | null
   }
@@ -10887,6 +10898,7 @@ export namespace Prisma {
   export type RecordMaxAggregateOutputType = {
     id: string | null
     tableId: string | null
+    position: number | null
     createdAt: Date | null
     updatedAt: Date | null
   }
@@ -10894,15 +10906,25 @@ export namespace Prisma {
   export type RecordCountAggregateOutputType = {
     id: number
     tableId: number
+    position: number
     createdAt: number
     updatedAt: number
     _all: number
   }
 
 
+  export type RecordAvgAggregateInputType = {
+    position?: true
+  }
+
+  export type RecordSumAggregateInputType = {
+    position?: true
+  }
+
   export type RecordMinAggregateInputType = {
     id?: true
     tableId?: true
+    position?: true
     createdAt?: true
     updatedAt?: true
   }
@@ -10910,6 +10932,7 @@ export namespace Prisma {
   export type RecordMaxAggregateInputType = {
     id?: true
     tableId?: true
+    position?: true
     createdAt?: true
     updatedAt?: true
   }
@@ -10917,6 +10940,7 @@ export namespace Prisma {
   export type RecordCountAggregateInputType = {
     id?: true
     tableId?: true
+    position?: true
     createdAt?: true
     updatedAt?: true
     _all?: true
@@ -10960,6 +10984,18 @@ export namespace Prisma {
     /**
      * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
      * 
+     * Select which fields to average
+    **/
+    _avg?: RecordAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: RecordSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
      * Select which fields to find the minimum value
     **/
     _min?: RecordMinAggregateInputType
@@ -10990,6 +11026,8 @@ export namespace Prisma {
     take?: number
     skip?: number
     _count?: RecordCountAggregateInputType | true
+    _avg?: RecordAvgAggregateInputType
+    _sum?: RecordSumAggregateInputType
     _min?: RecordMinAggregateInputType
     _max?: RecordMaxAggregateInputType
   }
@@ -10997,9 +11035,12 @@ export namespace Prisma {
   export type RecordGroupByOutputType = {
     id: string
     tableId: string
+    position: number
     createdAt: Date
     updatedAt: Date
     _count: RecordCountAggregateOutputType | null
+    _avg: RecordAvgAggregateOutputType | null
+    _sum: RecordSumAggregateOutputType | null
     _min: RecordMinAggregateOutputType | null
     _max: RecordMaxAggregateOutputType | null
   }
@@ -11021,6 +11062,7 @@ export namespace Prisma {
   export type RecordSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
     tableId?: boolean
+    position?: boolean
     createdAt?: boolean
     updatedAt?: boolean
     cells?: boolean | Record$cellsArgs<ExtArgs>
@@ -11031,6 +11073,7 @@ export namespace Prisma {
   export type RecordSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
     tableId?: boolean
+    position?: boolean
     createdAt?: boolean
     updatedAt?: boolean
     table?: boolean | TableDefaultArgs<ExtArgs>
@@ -11039,6 +11082,7 @@ export namespace Prisma {
   export type RecordSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
     id?: boolean
     tableId?: boolean
+    position?: boolean
     createdAt?: boolean
     updatedAt?: boolean
     table?: boolean | TableDefaultArgs<ExtArgs>
@@ -11047,11 +11091,12 @@ export namespace Prisma {
   export type RecordSelectScalar = {
     id?: boolean
     tableId?: boolean
+    position?: boolean
     createdAt?: boolean
     updatedAt?: boolean
   }
 
-  export type RecordOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "tableId" | "createdAt" | "updatedAt", ExtArgs["result"]["record"]>
+  export type RecordOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "tableId" | "position" | "createdAt" | "updatedAt", ExtArgs["result"]["record"]>
   export type RecordInclude<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     cells?: boolean | Record$cellsArgs<ExtArgs>
     table?: boolean | TableDefaultArgs<ExtArgs>
@@ -11073,6 +11118,7 @@ export namespace Prisma {
     scalars: $Extensions.GetPayloadResult<{
       id: string
       tableId: string
+      position: number
       createdAt: Date
       updatedAt: Date
     }, ExtArgs["result"]["record"]>
@@ -11502,6 +11548,7 @@ export namespace Prisma {
   interface RecordFieldRefs {
     readonly id: FieldRef<"Record", 'String'>
     readonly tableId: FieldRef<"Record", 'String'>
+    readonly position: FieldRef<"Record", 'Int'>
     readonly createdAt: FieldRef<"Record", 'DateTime'>
     readonly updatedAt: FieldRef<"Record", 'DateTime'>
   }
@@ -14310,6 +14357,7 @@ export namespace Prisma {
   export const RecordScalarFieldEnum: {
     id: 'id',
     tableId: 'tableId',
+    position: 'position',
     createdAt: 'createdAt',
     updatedAt: 'updatedAt'
   };
@@ -15008,6 +15056,7 @@ export namespace Prisma {
     NOT?: RecordWhereInput | RecordWhereInput[]
     id?: StringFilter<"Record"> | string
     tableId?: StringFilter<"Record"> | string
+    position?: IntFilter<"Record"> | number
     createdAt?: DateTimeFilter<"Record"> | Date | string
     updatedAt?: DateTimeFilter<"Record"> | Date | string
     cells?: CellListRelationFilter
@@ -15017,6 +15066,7 @@ export namespace Prisma {
   export type RecordOrderByWithRelationInput = {
     id?: SortOrder
     tableId?: SortOrder
+    position?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
     cells?: CellOrderByRelationAggregateInput
@@ -15029,6 +15079,7 @@ export namespace Prisma {
     OR?: RecordWhereInput[]
     NOT?: RecordWhereInput | RecordWhereInput[]
     tableId?: StringFilter<"Record"> | string
+    position?: IntFilter<"Record"> | number
     createdAt?: DateTimeFilter<"Record"> | Date | string
     updatedAt?: DateTimeFilter<"Record"> | Date | string
     cells?: CellListRelationFilter
@@ -15038,11 +15089,14 @@ export namespace Prisma {
   export type RecordOrderByWithAggregationInput = {
     id?: SortOrder
     tableId?: SortOrder
+    position?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
     _count?: RecordCountOrderByAggregateInput
+    _avg?: RecordAvgOrderByAggregateInput
     _max?: RecordMaxOrderByAggregateInput
     _min?: RecordMinOrderByAggregateInput
+    _sum?: RecordSumOrderByAggregateInput
   }
 
   export type RecordScalarWhereWithAggregatesInput = {
@@ -15051,6 +15105,7 @@ export namespace Prisma {
     NOT?: RecordScalarWhereWithAggregatesInput | RecordScalarWhereWithAggregatesInput[]
     id?: StringWithAggregatesFilter<"Record"> | string
     tableId?: StringWithAggregatesFilter<"Record"> | string
+    position?: IntWithAggregatesFilter<"Record"> | number
     createdAt?: DateTimeWithAggregatesFilter<"Record"> | Date | string
     updatedAt?: DateTimeWithAggregatesFilter<"Record"> | Date | string
   }
@@ -15745,6 +15800,7 @@ export namespace Prisma {
 
   export type RecordCreateInput = {
     id?: string
+    position?: number
     createdAt?: Date | string
     updatedAt?: Date | string
     cells?: CellCreateNestedManyWithoutRecordInput
@@ -15754,6 +15810,7 @@ export namespace Prisma {
   export type RecordUncheckedCreateInput = {
     id?: string
     tableId: string
+    position?: number
     createdAt?: Date | string
     updatedAt?: Date | string
     cells?: CellUncheckedCreateNestedManyWithoutRecordInput
@@ -15761,6 +15818,7 @@ export namespace Prisma {
 
   export type RecordUpdateInput = {
     id?: StringFieldUpdateOperationsInput | string
+    position?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
     cells?: CellUpdateManyWithoutRecordNestedInput
@@ -15770,6 +15828,7 @@ export namespace Prisma {
   export type RecordUncheckedUpdateInput = {
     id?: StringFieldUpdateOperationsInput | string
     tableId?: StringFieldUpdateOperationsInput | string
+    position?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
     cells?: CellUncheckedUpdateManyWithoutRecordNestedInput
@@ -15778,12 +15837,14 @@ export namespace Prisma {
   export type RecordCreateManyInput = {
     id?: string
     tableId: string
+    position?: number
     createdAt?: Date | string
     updatedAt?: Date | string
   }
 
   export type RecordUpdateManyMutationInput = {
     id?: StringFieldUpdateOperationsInput | string
+    position?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
@@ -15791,6 +15852,7 @@ export namespace Prisma {
   export type RecordUncheckedUpdateManyInput = {
     id?: StringFieldUpdateOperationsInput | string
     tableId?: StringFieldUpdateOperationsInput | string
+    position?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
@@ -16510,13 +16572,19 @@ export namespace Prisma {
   export type RecordCountOrderByAggregateInput = {
     id?: SortOrder
     tableId?: SortOrder
+    position?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
+  }
+
+  export type RecordAvgOrderByAggregateInput = {
+    position?: SortOrder
   }
 
   export type RecordMaxOrderByAggregateInput = {
     id?: SortOrder
     tableId?: SortOrder
+    position?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
   }
@@ -16524,8 +16592,13 @@ export namespace Prisma {
   export type RecordMinOrderByAggregateInput = {
     id?: SortOrder
     tableId?: SortOrder
+    position?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
+  }
+
+  export type RecordSumOrderByAggregateInput = {
+    position?: SortOrder
   }
 
   export type FloatNullableFilter<$PrismaModel = never> = {
@@ -18180,6 +18253,7 @@ export namespace Prisma {
 
   export type RecordCreateWithoutTableInput = {
     id?: string
+    position?: number
     createdAt?: Date | string
     updatedAt?: Date | string
     cells?: CellCreateNestedManyWithoutRecordInput
@@ -18187,6 +18261,7 @@ export namespace Prisma {
 
   export type RecordUncheckedCreateWithoutTableInput = {
     id?: string
+    position?: number
     createdAt?: Date | string
     updatedAt?: Date | string
     cells?: CellUncheckedCreateNestedManyWithoutRecordInput
@@ -18303,6 +18378,7 @@ export namespace Prisma {
     NOT?: RecordScalarWhereInput | RecordScalarWhereInput[]
     id?: StringFilter<"Record"> | string
     tableId?: StringFilter<"Record"> | string
+    position?: IntFilter<"Record"> | number
     createdAt?: DateTimeFilter<"Record"> | Date | string
     updatedAt?: DateTimeFilter<"Record"> | Date | string
   }
@@ -18610,6 +18686,7 @@ export namespace Prisma {
 
   export type RecordCreateWithoutCellsInput = {
     id?: string
+    position?: number
     createdAt?: Date | string
     updatedAt?: Date | string
     table: TableCreateNestedOneWithoutRecordsInput
@@ -18618,6 +18695,7 @@ export namespace Prisma {
   export type RecordUncheckedCreateWithoutCellsInput = {
     id?: string
     tableId: string
+    position?: number
     createdAt?: Date | string
     updatedAt?: Date | string
   }
@@ -18673,6 +18751,7 @@ export namespace Prisma {
 
   export type RecordUpdateWithoutCellsInput = {
     id?: StringFieldUpdateOperationsInput | string
+    position?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
     table?: TableUpdateOneRequiredWithoutRecordsNestedInput
@@ -18681,6 +18760,7 @@ export namespace Prisma {
   export type RecordUncheckedUpdateWithoutCellsInput = {
     id?: StringFieldUpdateOperationsInput | string
     tableId?: StringFieldUpdateOperationsInput | string
+    position?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
@@ -18928,6 +19008,7 @@ export namespace Prisma {
 
   export type RecordCreateManyTableInput = {
     id?: string
+    position?: number
     createdAt?: Date | string
     updatedAt?: Date | string
   }
@@ -18975,6 +19056,7 @@ export namespace Prisma {
 
   export type RecordUpdateWithoutTableInput = {
     id?: StringFieldUpdateOperationsInput | string
+    position?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
     cells?: CellUpdateManyWithoutRecordNestedInput
@@ -18982,6 +19064,7 @@ export namespace Prisma {
 
   export type RecordUncheckedUpdateWithoutTableInput = {
     id?: StringFieldUpdateOperationsInput | string
+    position?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
     cells?: CellUncheckedUpdateManyWithoutRecordNestedInput
@@ -18989,6 +19072,7 @@ export namespace Prisma {
 
   export type RecordUncheckedUpdateManyWithoutTableInput = {
     id?: StringFieldUpdateOperationsInput | string
+    position?: IntFieldUpdateOperationsInput | number
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
