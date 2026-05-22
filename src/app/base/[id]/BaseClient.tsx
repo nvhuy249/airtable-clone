@@ -344,7 +344,7 @@ function BaseClientContent({
   const [appliedSorts, setAppliedSorts] = useState<SortItem[]>([]);
   const [globalSearch, setGlobalSearch] = useState("");
   const RECORD_PAGE_SIZE = 500;
-  const RECORD_WINDOW_PAGE_SIZE = 120;
+  const RECORD_WINDOW_PAGE_SIZE = 300;
   const INITIAL_EAGER_RECORD_TARGET = 1_500;
   const filterDebounceHandleRef = useRef<number | null>(null);
 
@@ -876,21 +876,11 @@ function BaseClientContent({
         return;
       }
 
-      const requestedOffset = (() => {
-        if (currentWindow) {
-          const windowStart = currentWindow.offset;
-          const windowEnd = currentWindow.offset + currentWindow.records.length - 1;
-          if (endIndex > windowEnd) return windowEnd + 1;
-          if (startIndex < windowStart) {
-            return Math.max(0, windowStart - RECORD_WINDOW_PAGE_SIZE);
-          }
-        }
-
-        return Math.max(
-          0,
-          Math.floor(startIndex / RECORD_WINDOW_PAGE_SIZE) * RECORD_WINDOW_PAGE_SIZE,
-        );
-      })();
+      const requestedMidpoint = Math.floor((startIndex + endIndex) / 2);
+      const requestedOffset = Math.max(
+        0,
+        requestedMidpoint - Math.floor(RECORD_WINDOW_PAGE_SIZE / 2),
+      );
       if (emptyRecordWindowOffsetsRef.current.has(requestedOffset)) return;
       if (failedRecordWindowOffsetsRef.current.has(requestedOffset)) return;
 
