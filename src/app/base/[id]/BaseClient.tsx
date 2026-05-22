@@ -404,7 +404,6 @@ function BaseClientContent({
   const inFlightRecordWindowOffsetRef = useRef<number | null>(null);
   const queuedRecordWindowOffsetRef = useRef<number | null>(null);
   const emptyRecordWindowOffsetsRef = useRef<Set<number>>(new Set());
-  const failedRecordWindowOffsetsRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     recordsWindowRef.current = recordsWindow;
@@ -427,7 +426,6 @@ function BaseClientContent({
     inFlightRecordWindowOffsetRef.current = null;
     queuedRecordWindowOffsetRef.current = null;
     emptyRecordWindowOffsetsRef.current.clear();
-    failedRecordWindowOffsetsRef.current.clear();
     setIsFetchingRecordsWindow(false);
   }, [recordsQueryInput]);
 
@@ -879,10 +877,12 @@ function BaseClientContent({
       const requestedMidpoint = Math.floor((startIndex + endIndex) / 2);
       const requestedOffset = Math.max(
         0,
-        requestedMidpoint - Math.floor(RECORD_WINDOW_PAGE_SIZE / 2),
+        Math.floor(
+          (requestedMidpoint - Math.floor(RECORD_WINDOW_PAGE_SIZE / 2)) /
+            RECORD_WINDOW_PAGE_SIZE,
+        ) * RECORD_WINDOW_PAGE_SIZE,
       );
       if (emptyRecordWindowOffsetsRef.current.has(requestedOffset)) return;
-      if (failedRecordWindowOffsetsRef.current.has(requestedOffset)) return;
 
       const fetchWindow = (offset: number) => {
         if (inFlightRecordWindowOffsetRef.current !== null) {
@@ -923,9 +923,7 @@ function BaseClientContent({
             recordsWindowRef.current = nextWindow;
             setRecordsWindow(nextWindow);
           })
-          .catch(() => {
-            failedRecordWindowOffsetsRef.current.add(offset);
-          })
+          .catch(() => undefined)
           .finally(() => {
             inFlightRecordWindowOffsetRef.current = null;
             const queuedOffset = queuedRecordWindowOffsetRef.current;
