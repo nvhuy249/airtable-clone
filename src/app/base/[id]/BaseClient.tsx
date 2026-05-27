@@ -1288,6 +1288,38 @@ function BaseClientContent({
     [logPendingState],
   );
 
+  const rekeyLocalCellState = useCallback(
+    (oldRecordId: string, newRecordId: string) => {
+      const moveKey = (key: string) => {
+        const [recordId, fieldId] = key.split(":");
+        if (!recordId || !fieldId || recordId !== oldRecordId) return null;
+        return makePendingKey(newRecordId, fieldId);
+      };
+
+      Array.from(lastLocalCellValueRef.current.entries()).forEach(([key, value]) => {
+        const nextKey = moveKey(key);
+        if (!nextKey) return;
+        lastLocalCellValueRef.current.delete(key);
+        lastLocalCellValueRef.current.set(nextKey, value);
+      });
+
+      Array.from(dirtyCellKeysRef.current).forEach((key) => {
+        const nextKey = moveKey(key);
+        if (!nextKey) return;
+        dirtyCellKeysRef.current.delete(key);
+        dirtyCellKeysRef.current.add(nextKey);
+      });
+
+      Array.from(cellUpdateQueuesRef.current.entries()).forEach(([key, value]) => {
+        const nextKey = moveKey(key);
+        if (!nextKey) return;
+        cellUpdateQueuesRef.current.delete(key);
+        cellUpdateQueuesRef.current.set(nextKey, value);
+      });
+    },
+    [],
+  );
+
   const queuePendingCellEdit = useCallback(
     (recordId: string, fieldId: string, value: CellValue) => {
       pendingCellEditsRef.current.set(makePendingKey(recordId, fieldId), {
@@ -1363,6 +1395,25 @@ function BaseClientContent({
       resolveRecordId,
     ],
   );
+
+  const flushDirtyLocalEdits = useCallback(() => {
+    Array.from(dirtyCellKeysRef.current).forEach((key) => {
+      const [recordId, fieldId] = key.split(":");
+      if (!recordId || !fieldId) return;
+      const value = normalizeLocalValue(lastLocalCellValueRef.current.get(key));
+      if (isOptimisticRecordId(recordId) || isOptimisticFieldId(fieldId)) {
+        queuePendingCellEdit(recordId, fieldId, value);
+        return;
+      }
+      enqueueCellUpdate(recordId, fieldId, value);
+    });
+    flushPendingCellEdits();
+  }, [
+    enqueueCellUpdate,
+    flushPendingCellEdits,
+    normalizeLocalValue,
+    queuePendingCellEdit,
+  ]);
 
   const addField = api.table.addField.useMutation({
     onMutate: async (variables) => {
@@ -1531,6 +1582,7 @@ function BaseClientContent({
       if (!recordsQueryInput) return { previous: undefined };
       if (ctx?.optimisticId) {
         optimisticRecordIdMapRef.current.set(ctx.optimisticId, record.id);
+        rekeyLocalCellState(ctx.optimisticId, record.id);
         rekeyPendingEdits((edit) =>
           edit.recordId === ctx.optimisticId ? { ...edit, recordId: record.id } : edit,
         );
@@ -2015,6 +2067,7 @@ function BaseClientContent({
                 }}
                 onAddRow={() => {
                   if (!activeTableId || addRecord.isPending) return;
+                  flushDirtyLocalEdits();
                   addRecord.mutate({ tableId: activeTableId });
                 }}
                 onDeleteColumn={(fieldId) => {

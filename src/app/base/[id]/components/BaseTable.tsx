@@ -62,7 +62,7 @@ const VIRTUAL_ROW_HEIGHT = 32;
 const VIRTUAL_OVERSCAN = 16;
 const RANGE_PREFETCH_ROWS = 60;
 const FIRST_COL_STICKY_CLASS = "left-[56px]";
-const FIRST_SEPARATOR_LEFT_CLASS = "left-[236px]";
+const FIRST_SEPARATOR_LEFT_CLASS = "left-[235px]";
 const TEXT_COL_CLASS = "w-[180px] min-w-[180px]";
 const NUMBER_COL_CLASS = "w-[180px] min-w-[180px]";
 
@@ -924,10 +924,10 @@ export default function BaseTable({
 
           return (
             <div
-              className={`flex h-full w-full min-h-[24px] items-stretch rounded-[3px] border border-transparent transition-colors ${
+              className={`flex h-full min-h-8 w-full items-stretch transition-colors ${
                 isActive
-                  ? "border-[#1e73ff] ring-2 ring-[#1e73ff] ring-offset-0"
-                  : "focus-within:border-[#1e73ff] focus-within:ring-1 focus-within:ring-[#1e73ff] focus-within:ring-offset-0"
+                  ? "shadow-[inset_0_0_0_2px_#1e73ff]"
+                  : "focus-within:shadow-[inset_0_0_0_1px_#1e73ff]"
               }`}
               data-cell-container="true"
               onClick={() => {
@@ -957,7 +957,7 @@ export default function BaseTable({
                 });
               }}
             >
-              <div className="flex flex-auto">
+              <div className="flex h-full flex-auto">
                 <input
                   ref={inputRef}
                   type={isNumberField ? "number" : "text"}
@@ -965,7 +965,7 @@ export default function BaseTable({
                   pattern={isBooleanField ? "[01]" : undefined}
                   maxLength={isBooleanField ? 1 : undefined}
                   disabled={isOptimisticField}
-                  className="w-full bg-transparent border-0 px-0 py-0 text-[13px] leading-[18px] text-gray-900 outline-none focus:outline-none focus:ring-0 disabled:cursor-wait disabled:text-gray-400"
+                  className="h-full w-full border-0 bg-transparent px-2 py-0 text-[13px] leading-[18px] text-gray-900 outline-none focus:outline-none focus:ring-0 disabled:cursor-wait disabled:text-gray-400"
                   style={{ caretColor: isEditing ? 'auto' : 'transparent' }}
                   placeholder=" "
                   value={editValue}
@@ -1308,6 +1308,14 @@ export default function BaseTable({
   const bottomSpacerHeight = virtualRows.length && rowVirtualizer
     ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1]!.end
     : 0;
+  const trailingStatusHeight = hasMore || isFetchingMore ? 24 : 0;
+  const trailingStatusExtraHeight = Math.max(0, trailingStatusHeight - bottomSpacerHeight);
+  const firstSeparatorTop =
+    VIRTUAL_ROW_HEIGHT +
+    rowVirtualizer.getTotalSize() +
+    trailingStatusExtraHeight +
+    VIRTUAL_ROW_HEIGHT +
+    1;
 
   const scrollPositionRef = useRef(0);
 
@@ -1393,7 +1401,10 @@ export default function BaseTable({
           maybeLoadMore();
         }}
       >
-        <div className={`pointer-events-none absolute top-0 bottom-0 ${FIRST_SEPARATOR_LEFT_CLASS} w-px bg-[#e6e8ef] z-0`} />
+        <div
+          className={`pointer-events-none absolute bottom-0 ${FIRST_SEPARATOR_LEFT_CLASS} w-px bg-[#e6e8ef] z-0`}
+          style={{ top: firstSeparatorTop }}
+        />
         <div className="pointer-events-none absolute top-0 left-0 right-0 h-8 bg-white z-0" />
         {isLoading && data.length === 0 && (
           <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
@@ -1541,6 +1552,9 @@ export default function BaseTable({
                 >
                   {row.getVisibleCells().map((cell) => {
                     const cellKey = `${recordId}:${cell.column.id}`;
+                    const isActiveCell =
+                      activeCell?.rowIndex === absoluteIndex &&
+                      activeCell.colId === cell.column.id;
                     const isFilterColumn = filteredFieldIdSet.has(cell.column.id);
                     const isSortColumn = sortedFieldIdSet.has(cell.column.id);
                     const isHighlighted = highlightedCellKeys.has(cellKey);
@@ -1559,12 +1573,18 @@ export default function BaseTable({
                         className={
                           cell.column.id === "addField"
                             ? `${widthClass(cell.column.id)} ${stickyClass(cell.column.id)} bg-[#f9fafc] p-0 border-0`
-                            : `border-b ${cell.column.id === "rowNumber" ? "" : "border-r"} border-[#e6e8ef] align-middle ${widthClass(cell.column.id)} ${stickyClass(cell.column.id)}`
+                            : `h-8 border-b ${cell.column.id === "rowNumber" ? "" : "border-r"} border-[#e6e8ef] p-0 align-middle ${widthClass(cell.column.id)} ${stickyClass(cell.column.id)} ${isActiveCell ? "relative z-20" : ""}`
                         }
                       >
                         {cell.column.id === "addField" ? null : (
-                          <div className={`h-full ${highlightClass}`}>
-                            <div className="px-2 py-1 text-[13px]">
+                          <div className={`h-full w-full ${highlightClass}`}>
+                            <div
+                              className={
+                                cell.column.id === "rowNumber"
+                                  ? "flex h-full w-full items-center justify-center text-[13px]"
+                                  : "h-full w-full text-[13px]"
+                              }
+                            >
                               {flexRender(
                                 cell.column.columnDef.cell,
                                 cell.getContext(),
@@ -1582,7 +1602,7 @@ export default function BaseTable({
               <td colSpan={table.getVisibleLeafColumns().length} className="p-0 border-0 bg-[#f9fafc]">
                 <div
                   className="relative w-full"
-                  style={{ height: Math.max(bottomSpacerHeight, hasMore || isFetchingMore ? 24 : 0) }}
+                  style={{ height: Math.max(bottomSpacerHeight, trailingStatusHeight) }}
                 >
                   {(hasMore || isFetchingMore) && (
                     <div
@@ -1595,14 +1615,14 @@ export default function BaseTable({
                 </div>
               </td>
             </tr>
-            <tr className="bg-white">
+            <tr className="bg-white" style={{ height: VIRTUAL_ROW_HEIGHT }}>
               {table.getVisibleLeafColumns().map((column) => (
                 <td
                   key={`add-row-${column.id}`}
                   className={
                     column.id === "addField"
                       ? `${widthClass(column.id)} ${stickyClass(column.id)} bg-[#f9fafc] p-0 border-0`
-                      : `border-b ${column.id === "rowNumber" ? "" : "border-r"} border-[#e6e8ef] align-middle ${widthClass(column.id)} ${stickyClass(column.id)}`
+                      : `h-8 border-b ${column.id === "rowNumber" ? "" : "border-r"} border-[#e6e8ef] p-0 align-middle ${widthClass(column.id)} ${stickyClass(column.id)}`
                   }
                 >
                   {column.id === "rowNumber" ? (
